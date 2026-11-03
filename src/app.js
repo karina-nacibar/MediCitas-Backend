@@ -41,11 +41,17 @@ function verificarToken(req, res, next) {
 
     next();
 
-  } catch (error) {
+} catch (error) {
+    console.error(
+      'ERROR AL VERIFICAR JWT:',
+      error.name,
+      error.message
+    );
+
     return res.status(401).json({
       mensaje: 'Tu sesión ha expirado o el token no es válido.'
     });
-  }
+}
 }
 
 // ========================================
