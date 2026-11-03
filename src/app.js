@@ -408,6 +408,7 @@ const token = jwt.sign(
           m.apellidos,
           m.correo,
           m.telefono,
+          m.estado,
           e.nombre AS especialidad
         FROM medicos m
         INNER JOIN especialidades e
