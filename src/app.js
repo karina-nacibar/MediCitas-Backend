@@ -426,6 +426,165 @@ const token = jwt.sign(
     }
   });
 
+  // REGISTRAR MÉDICO (SOLO ADMINISTRADOR)
+app.post(
+  '/api/medicos',
+  verificarToken,
+  autorizarRoles('administrador'),
+  async (req, res) => {
+    try {
+      const {
+        nombres,
+        apellidos,
+        correo,
+        telefono,
+        id_especialidad,
+        contrasena
+      } = req.body
+
+      // Validar campos obligatorios
+      if (
+        !nombres ||
+        !apellidos ||
+        !correo ||
+        !id_especialidad ||
+        !contrasena
+      ) {
+        return res.status(400).json({
+          mensaje: 'Completa todos los campos obligatorios.'
+        })
+      }
+
+      if (contrasena.length < 8) {
+        return res.status(400).json({
+          mensaje: 'La contraseña debe tener mínimo 8 caracteres.'
+        })
+      }
+
+      const correoNormalizado = correo.trim().toLowerCase()
+      const nombresLimpios = nombres.trim()
+      const apellidosLimpios = apellidos.trim()
+      const especialidadId = Number(id_especialidad)
+
+      if (!Number.isInteger(especialidadId) || especialidadId <= 0) {
+        return res.status(400).json({
+          mensaje: 'Selecciona una especialidad válida.'
+        })
+      }
+
+      // Verificar si el correo ya existe
+      const correoExistente = await sql`
+        SELECT correo
+        FROM usuarios
+        WHERE LOWER(correo) = ${correoNormalizado}
+        LIMIT 1
+      `
+
+      if (correoExistente.length > 0) {
+        return res.status(409).json({
+          mensaje: 'Ya existe una cuenta con ese correo electrónico.'
+        })
+      }
+
+      // Verificar que la especialidad exista
+      const especialidad = await sql`
+        SELECT id_especialidad
+        FROM especialidades
+        WHERE id_especialidad = ${especialidadId}
+      `
+
+      if (especialidad.length === 0) {
+        return res.status(400).json({
+          mensaje: 'La especialidad seleccionada no existe.'
+        })
+      }
+
+      // Encriptar contraseña
+      const contrasenaEncriptada = await bcrypt.hash(contrasena, 10)
+
+      // Crear médico y usuario en una sola operación
+      const resultado = await sql`
+        WITH nuevo_medico AS (
+          INSERT INTO medicos (
+            nombres,
+            apellidos,
+            correo,
+            telefono,
+            id_especialidad,
+            estado
+          )
+          VALUES (
+            ${nombresLimpios},
+            ${apellidosLimpios},
+            ${correoNormalizado},
+            ${telefono?.trim() || null},
+            ${especialidadId},
+            'activo'
+          )
+          RETURNING
+            id_medico,
+            nombres,
+            apellidos,
+            correo,
+            telefono,
+            id_especialidad,
+            estado
+        ),
+        nuevo_usuario AS (
+          INSERT INTO usuarios (
+            nombre,
+            correo,
+            contrasena,
+            rol,
+            id_medico,
+            fecha_creacion
+          )
+          SELECT
+            CONCAT(nombres, ' ', apellidos),
+            correo,
+            ${contrasenaEncriptada},
+            'medico',
+            id_medico,
+            NOW()
+          FROM nuevo_medico
+          RETURNING id_usuario, correo, rol, id_medico
+        )
+        SELECT
+          nuevo_medico.*,
+          nuevo_usuario.id_usuario,
+          nuevo_usuario.rol
+        FROM nuevo_medico
+        INNER JOIN nuevo_usuario
+          ON nuevo_medico.id_medico = nuevo_usuario.id_medico
+      `
+
+      return res.status(201).json({
+        mensaje: 'Médico registrado correctamente.',
+        medico: resultado[0]
+      })
+
+    } catch (error) {
+      console.error('Error al registrar médico:', error)
+
+      if (error.code === '23505') {
+        return res.status(409).json({
+          mensaje: 'Ya existe un registro con ese correo electrónico.'
+        })
+      }
+
+      if (error.code === '23503') {
+        return res.status(400).json({
+          mensaje: 'La especialidad seleccionada no es válida.'
+        })
+      }
+
+      return res.status(500).json({
+        mensaje: 'Error interno al registrar el médico.'
+      })
+    }
+  }
+)
+ 
   // ========================================
   // CONSULTAR PACIENTES
   // ========================================
@@ -1024,6 +1183,285 @@ app.get(
   }
 );
 
+
+// ==========================================
+// GESTIÓN DE HORARIOS MÉDICOS
+// ==========================================
+
+// CONSULTAR HORARIOS DE UN MÉDICO (ADMINISTRADOR)
+app.get(
+  '/api/medicos/:id/horarios',
+  verificarToken,
+  autorizarRoles('administrador'),
+  async (req, res) => {
+    try {
+      const idMedico = Number(req.params.id);
+
+      if (!Number.isInteger(idMedico) || idMedico <= 0) {
+        return res.status(400).json({
+          mensaje: 'El identificador del médico no es válido.'
+        });
+      }
+
+      const horarios = await sql`
+        SELECT
+          id_horario,
+          id_medico,
+          dia_semana,
+          hora_inicio,
+          hora_fin,
+          duracion_cita,
+          activo
+        FROM horarios_medicos
+        WHERE id_medico = ${idMedico}
+        ORDER BY dia_semana, hora_inicio
+      `;
+
+      return res.json(horarios);
+
+    } catch (error) {
+      console.error('Error al consultar horarios:', error);
+
+      return res.status(500).json({
+        mensaje: 'No fue posible consultar los horarios del médico.'
+      });
+    }
+  }
+);
+
+
+// REGISTRAR HORARIO DE UN MÉDICO (ADMINISTRADOR)
+app.post(
+  '/api/medicos/:id/horarios',
+  verificarToken,
+  autorizarRoles('administrador'),
+  async (req, res) => {
+    try {
+      const idMedico = Number(req.params.id);
+
+      const {
+        dia_semana,
+        hora_inicio,
+        hora_fin,
+        duracion_cita
+      } = req.body;
+
+      if (!Number.isInteger(idMedico) || idMedico <= 0) {
+        return res.status(400).json({
+          mensaje: 'El identificador del médico no es válido.'
+        });
+      }
+
+      const dia = Number(dia_semana);
+      const duracion = Number(duracion_cita);
+
+      if (!Number.isInteger(dia) || dia < 1 || dia > 7) {
+        return res.status(400).json({
+          mensaje: 'El día de la semana no es válido.'
+        });
+      }
+
+      const formatoHora = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+      if (
+        typeof hora_inicio !== 'string' ||
+        typeof hora_fin !== 'string' ||
+        !formatoHora.test(hora_inicio) ||
+        !formatoHora.test(hora_fin)
+      ) {
+        return res.status(400).json({
+          mensaje: 'Debes ingresar horas válidas en formato HH:MM.'
+        });
+      }
+
+      if (hora_inicio >= hora_fin) {
+        return res.status(400).json({
+          mensaje: 'La hora de inicio debe ser anterior a la hora de finalización.'
+        });
+      }
+
+      if (!Number.isInteger(duracion) || duracion <= 0) {
+        return res.status(400).json({
+          mensaje: 'La duración de la cita debe ser un número positivo.'
+        });
+      }
+
+      const medico = await sql`
+        SELECT id_medico
+        FROM medicos
+        WHERE id_medico = ${idMedico}
+          AND estado = 'activo'
+      `;
+
+      if (medico.length === 0) {
+        return res.status(404).json({
+          mensaje: 'El médico no existe o se encuentra inactivo.'
+        });
+      }
+
+      const resultado = await sql`
+        INSERT INTO horarios_medicos (
+          id_medico,
+          dia_semana,
+          hora_inicio,
+          hora_fin,
+          duracion_cita,
+          activo
+        )
+        VALUES (
+          ${idMedico},
+          ${dia},
+          ${hora_inicio},
+          ${hora_fin},
+          ${duracion},
+          TRUE
+        )
+        RETURNING *
+      `;
+
+      return res.status(201).json({
+        mensaje: 'Horario médico registrado correctamente.',
+        horario: resultado[0]
+      });
+
+    } catch (error) {
+      console.error('Error al registrar horario:', error);
+
+      if (error.code === '23P01' || error.code === '23505') {
+        return res.status(409).json({
+          mensaje: 'El horario se cruza con otro horario registrado para este médico.'
+        });
+      }
+
+      return res.status(500).json({
+        mensaje: 'No fue posible registrar el horario médico.'
+      });
+    }
+  }
+);
+
+
+// ==========================================
+// EDITAR HORARIO MÉDICO (ADMINISTRADOR)
+// ==========================================
+
+app.patch(
+  '/api/horarios/:id',
+  verificarToken,
+  autorizarRoles('administrador'),
+  async (req, res) => {
+    try {
+      const idHorario = Number(req.params.id);
+
+      if (!Number.isInteger(idHorario) || idHorario <= 0) {
+        return res.status(400).json({
+          mensaje: 'El identificador del horario no es válido.'
+        });
+      }
+
+      const existente = await sql`
+        SELECT *
+        FROM horarios_medicos
+        WHERE id_horario = ${idHorario}
+      `;
+
+      if (existente.length === 0) {
+        return res.status(404).json({
+          mensaje: 'El horario no existe.'
+        });
+      }
+
+      const actual = existente[0];
+
+      const dia = req.body.dia_semana !== undefined
+        ? Number(req.body.dia_semana)
+        : Number(actual.dia_semana);
+
+      const inicio = req.body.hora_inicio !== undefined
+        ? req.body.hora_inicio
+        : String(actual.hora_inicio).slice(0, 5);
+
+      const fin = req.body.hora_fin !== undefined
+        ? req.body.hora_fin
+        : String(actual.hora_fin).slice(0, 5);
+
+      const duracion = req.body.duracion_cita !== undefined
+        ? Number(req.body.duracion_cita)
+        : Number(actual.duracion_cita);
+
+      const activo = req.body.activo !== undefined
+        ? req.body.activo
+        : actual.activo;
+
+      if (!Number.isInteger(dia) || dia < 1 || dia > 7) {
+        return res.status(400).json({
+          mensaje: 'El día de la semana no es válido.'
+        });
+      }
+
+      const formatoHora = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+      if (
+        typeof inicio !== 'string' ||
+        typeof fin !== 'string' ||
+        !formatoHora.test(inicio) ||
+        !formatoHora.test(fin)
+      ) {
+        return res.status(400).json({
+          mensaje: 'Las horas ingresadas no son válidas.'
+        });
+      }
+
+      if (inicio >= fin) {
+        return res.status(400).json({
+          mensaje: 'La hora de inicio debe ser anterior a la hora final.'
+        });
+      }
+
+      if (!Number.isInteger(duracion) || duracion <= 0) {
+        return res.status(400).json({
+          mensaje: 'La duración de la cita debe ser positiva.'
+        });
+      }
+
+      if (typeof activo !== 'boolean') {
+        return res.status(400).json({
+          mensaje: 'El estado del horario no es válido.'
+        });
+      }
+
+      const resultado = await sql`
+        UPDATE horarios_medicos
+        SET
+          dia_semana = ${dia},
+          hora_inicio = ${inicio},
+          hora_fin = ${fin},
+          duracion_cita = ${duracion},
+          activo = ${activo}
+        WHERE id_horario = ${idHorario}
+        RETURNING *
+      `;
+
+      return res.json({
+        mensaje: 'Horario actualizado correctamente.',
+        horario: resultado[0]
+      });
+
+    } catch (error) {
+      console.error('Error al actualizar horario:', error);
+
+      if (error.code === '23P01' || error.code === '23505') {
+        return res.status(409).json({
+          mensaje: 'El horario se cruza con otro horario activo del médico.'
+        });
+      }
+
+      return res.status(500).json({
+        mensaje: 'No fue posible actualizar el horario.'
+      });
+    }
+  }
+);
 
   app.listen(PORT, () => {
     console.log(`Servidor MediCitas ejecutándose en el puerto ${PORT}`);
