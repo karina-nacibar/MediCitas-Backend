@@ -1748,6 +1748,47 @@ app.patch(
     }
 );
 
+// CONSULTAR LOS HORARIOS DEL MÉDICO QUE INICIÓ SESIÓN
+app.get(
+  '/api/medico/mi-agenda',
+  verificarToken,
+  autorizarRoles('medico'),
+  async (req, res) => {
+    try {
+      const idMedico = Number(req.usuario.id_medico);
+
+      if (!Number.isInteger(idMedico) || idMedico <= 0) {
+        return res.status(400).json({
+          mensaje: 'No se encontró un médico asociado a esta cuenta.'
+        });
+      }
+
+      const horarios = await sql`
+        SELECT
+          id_horario,
+          id_medico,
+          dia_semana,
+          hora_inicio,
+          hora_fin,
+          duracion_cita,
+          activo
+        FROM horarios_medicos
+        WHERE id_medico = ${idMedico}
+        ORDER BY dia_semana, hora_inicio
+      `;
+
+      return res.json(horarios);
+
+    } catch (error) {
+      console.error('Error al consultar la agenda del médico:', error);
+
+      return res.status(500).json({
+        mensaje: 'No fue posible consultar tu agenda.'
+      });
+    }
+  }
+);
+
 app.get(
   '/api/medicos/:id/horarios',
   verificarToken,
