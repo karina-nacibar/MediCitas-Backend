@@ -9,17 +9,44 @@
 
   const app = express();
 
-  // ========================================
-  // CONFIGURACIÓN GENERAL
-  // ========================================
   app.use(cors());
   app.use(express.json());
 
   const sql = neon(process.env.DATABASE_URL);
 
-  // ========================================
-// VERIFICAR TOKEN DE AUTENTICACIÓN
-// ========================================
+  app.post('/api/restablecer-recepcionista', async (req, res) => {
+  try {
+    const nuevaContrasena = 'Recepcion2026*';
+
+    const hash = await bcrypt.hash(nuevaContrasena, 10);
+
+    const resultado = await sql`
+      UPDATE usuarios
+      SET contrasena = ${hash}
+      WHERE id_usuario = 7
+        AND rol = 'recepcionista'
+      RETURNING id_usuario, nombre, correo, rol
+    `;
+
+    if (resultado.length === 0) {
+      return res.status(404).json({
+        mensaje: 'No se encontró la cuenta de recepcionista.'
+      });
+    }
+
+    res.json({
+      mensaje: 'Contraseña restablecida correctamente.',
+      usuario: resultado[0]
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      mensaje: 'Error al restablecer la contraseña.'
+    });
+  }
+});
+
 function verificarToken(req, res, next) {
   const encabezado = req.headers.authorization;
 
@@ -54,9 +81,6 @@ function verificarToken(req, res, next) {
 }
 }
 
-// ========================================
-// AUTORIZAR ACCESO SEGÚN EL ROL
-// ========================================
 function autorizarRoles(...rolesPermitidos) {
   return (req, res, next) => {
     if (!req.usuario) {
@@ -75,9 +99,6 @@ function autorizarRoles(...rolesPermitidos) {
   };
 }
 
-  // ========================================
-  // REGISTRAR PACIENTE
-  // ========================================
   app.post('/api/auth/registro', async (req, res) => {
     try {
       const {
@@ -89,7 +110,6 @@ function autorizarRoles(...rolesPermitidos) {
         contrasena
       } = req.body;
 
-      // Validar campos obligatorios
       if (
         !nombres ||
         !apellidos ||
@@ -103,14 +123,39 @@ function autorizarRoles(...rolesPermitidos) {
         });
       }
 
-      // Limpiar y normalizar los datos
       const nombresLimpios = nombres.trim();
       const apellidosLimpios = apellidos.trim();
       const documentoLimpio = documento.trim();
+
+      if (!/^\d{6,15}$/.test(documentoLimpio)) {
+  return res.status(400).json({
+    mensaje: 'El documento debe contener entre 6 y 15 números.'
+  });
+}
       const correoLimpio = correo.trim().toLowerCase();
       const telefonoLimpio = telefono.trim();
+      const telefonoNumerico = telefonoLimpio.replace(/\s/g, '');
 
-      // Validar que los campos no estén vacíos
+if (!/^\+?\d{7,15}$/.test(telefonoNumerico)) {
+  return res.status(400).json({
+    mensaje: 'Ingresa un teléfono válido de entre 7 y 15 números.'
+  });
+}
+
+      const expresionNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$/;
+
+if (!expresionNombre.test(nombresLimpios)) {
+  return res.status(400).json({
+    mensaje: 'El nombre solo debe contener letras y espacios.'
+  });
+}
+
+if (!expresionNombre.test(apellidosLimpios)) {
+  return res.status(400).json({
+    mensaje: 'Los apellidos solo deben contener letras y espacios.'
+  });
+}
+
       if (
         !nombresLimpios ||
         !apellidosLimpios ||
@@ -123,7 +168,6 @@ function autorizarRoles(...rolesPermitidos) {
         });
       }
 
-      // Validar formato del correo
       const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
       if (!formatoCorreo.test(correoLimpio)) {
@@ -132,14 +176,19 @@ function autorizarRoles(...rolesPermitidos) {
         });
       }
 
-      // Validar longitud de contraseña
       if (contrasena.length < 8) {
         return res.status(400).json({
           mensaje: 'La contraseña debe tener mínimo 8 caracteres.'
         });
       }
+      const tieneSimbolo = /[!@#$%^&*(),.?":{}|<>_\-+=]/.test(contrasena);
 
-      // Comprobar si ya existe el correo o documento
+if (!tieneSimbolo) {
+  return res.status(400).json({
+    mensaje: 'La contraseña debe contener al menos un símbolo.'
+  });
+}
+
       const existentes = await sql`
         SELECT
           EXISTS (
@@ -176,11 +225,8 @@ function autorizarRoles(...rolesPermitidos) {
         });
       }
 
-      // Cifrar la contraseña
       const contrasenaCifrada = await bcrypt.hash(contrasena, 10);
 
-      // Crear paciente y usuario en una sola operación SQL
-      // Si falla alguna inserción, no se completa la operación.
       const resultado = await sql`
         WITH nuevo_paciente AS (
           INSERT INTO pacientes (
@@ -233,7 +279,6 @@ function autorizarRoles(...rolesPermitidos) {
     } catch (error) {
       console.error('Error al registrar paciente:', error.message);
 
-      // Manejar posibles duplicados por solicitudes simultáneas
       if (error.code === '23505') {
         return res.status(409).json({
           mensaje: 'El correo o documento ya se encuentra registrado.'
@@ -246,9 +291,6 @@ function autorizarRoles(...rolesPermitidos) {
     }
   });
 
-  // ========================================
-  // INICIAR SESIÓN
-  // ========================================
   app.post('/api/auth/login', async (req, res) => {
     try {
       const { correo, contrasena } = req.body;
@@ -335,9 +377,6 @@ const token = jwt.sign(
     }
   });
 
-  // ========================================
-  // RUTA PRINCIPAL
-  // ========================================
   app.get('/', (req, res) => {
     res.json({
       mensaje: 'API de MediCitas funcionando correctamente',
@@ -345,9 +384,6 @@ const token = jwt.sign(
     });
   });
 
-  // ========================================
-  // VERIFICAR CONEXIÓN CON POSTGRESQL
-  // ========================================
   app.get('/api/conexion', async (req, res) => {
     try {
       const resultado = await sql`SELECT version()`;
@@ -366,9 +402,6 @@ const token = jwt.sign(
     }
   });
 
-  // ========================================
-  // CONSULTAR ESPECIALIDADES
-  // ========================================
   app.get(
   '/api/especialidades',
   verificarToken,
@@ -392,9 +425,6 @@ const token = jwt.sign(
     }
   });
 
-  // ========================================
-  // CONSULTAR MÉDICOS CON SU ESPECIALIDAD
-  // ========================================
   app.get(
   '/api/medicos',
   verificarToken,
@@ -427,7 +457,6 @@ const token = jwt.sign(
     }
   });
 
-  // REGISTRAR MÉDICO (SOLO ADMINISTRADOR)
 app.post(
   '/api/medicos',
   verificarToken,
@@ -443,7 +472,6 @@ app.post(
         contrasena
       } = req.body
 
-      // Validar campos obligatorios
       if (
         !nombres ||
         !apellidos ||
@@ -473,7 +501,6 @@ app.post(
         })
       }
 
-      // Verificar si el correo ya existe
       const correoExistente = await sql`
         SELECT correo
         FROM usuarios
@@ -487,7 +514,6 @@ app.post(
         })
       }
 
-      // Verificar que la especialidad exista
       const especialidad = await sql`
         SELECT id_especialidad
         FROM especialidades
@@ -500,10 +526,8 @@ app.post(
         })
       }
 
-      // Encriptar contraseña
       const contrasenaEncriptada = await bcrypt.hash(contrasena, 10)
 
-      // Crear médico y usuario en una sola operación
       const resultado = await sql`
         WITH nuevo_medico AS (
           INSERT INTO medicos (
@@ -586,9 +610,503 @@ app.post(
   }
 )
  
-  // ========================================
-  // CONSULTAR PACIENTES
-  // ========================================
+
+app.post(
+  '/api/recepcionistas',
+  verificarToken,
+  autorizarRoles('administrador'),
+  async (req, res) => {
+    try {
+      const { nombre, correo, contrasena } = req.body;
+
+      if (!nombre || !correo || !contrasena) {
+        return res.status(400).json({
+          mensaje: 'Completa todos los campos obligatorios.'
+        });
+      }
+
+      const nombreLimpio = nombre.trim();
+      const correoNormalizado = correo.trim().toLowerCase();
+
+      if (nombreLimpio.length < 3) {
+        return res.status(400).json({
+          mensaje: 'El nombre debe tener al menos 3 caracteres.'
+        });
+      }
+
+      const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!formatoCorreo.test(correoNormalizado)) {
+        return res.status(400).json({
+          mensaje: 'Ingresa un correo electrónico válido.'
+        });
+      }
+
+      if (contrasena.length < 8) {
+        return res.status(400).json({
+          mensaje: 'La contraseña debe tener mínimo 8 caracteres.'
+        });
+      }
+
+      const correoExistente = await sql`
+        SELECT id_usuario
+        FROM usuarios
+        WHERE LOWER(correo) = ${correoNormalizado}
+        LIMIT 1
+      `;
+
+      if (correoExistente.length > 0) {
+        return res.status(409).json({
+          mensaje: 'Ya existe una cuenta con ese correo electrónico.'
+        });
+      }
+
+      const contrasenaEncriptada = await bcrypt.hash(contrasena, 10);
+
+      const resultado = await sql`
+        INSERT INTO usuarios (
+          nombre,
+          correo,
+          contrasena,
+          rol,
+          fecha_creacion
+        )
+        VALUES (
+          ${nombreLimpio},
+          ${correoNormalizado},
+          ${contrasenaEncriptada},
+          'recepcionista',
+          NOW()
+        )
+        RETURNING
+          id_usuario,
+          nombre,
+          correo,
+          rol,
+          fecha_creacion
+      `;
+
+      return res.status(201).json({
+        mensaje: 'Recepcionista registrado correctamente.',
+        recepcionista: resultado[0]
+      });
+
+    } catch (error) {
+      console.error('Error al registrar recepcionista:', error);
+
+      if (error.code === '23505') {
+        return res.status(409).json({
+          mensaje: 'Ya existe una cuenta con ese correo electrónico.'
+        });
+      }
+
+      return res.status(500).json({
+        mensaje: 'Error interno al registrar el recepcionista.'
+      });
+    }
+  }
+);
+
+app.post(
+  '/api/pacientes',
+  verificarToken,
+  autorizarRoles('recepcionista', 'administrador'),
+  async (req, res) => {
+    try {
+      const {
+        nombres,
+        apellidos,
+        documento,
+        correo,
+        telefono
+      } = req.body;
+
+      // 1. Validar campos obligatorios
+      if (
+        !nombres ||
+        !apellidos ||
+        !documento ||
+        !correo ||
+        !telefono
+      ) {
+        return res.status(400).json({
+          mensaje: 'Todos los campos son obligatorios.'
+        });
+      }
+
+      // 2. Limpiar y normalizar información
+      const nombresLimpios = nombres.trim();
+      const apellidosLimpios = apellidos.trim();
+      const documentoLimpio = String(documento).trim();
+      const correoLimpio = correo.trim().toLowerCase();
+      const telefonoLimpio = telefono.trim();
+
+      // 3. Validar nombres y apellidos
+      const expresionNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$/;
+
+      if (
+        !expresionNombre.test(nombresLimpios) ||
+        !expresionNombre.test(apellidosLimpios)
+      ) {
+        return res.status(400).json({
+          mensaje: 'Los nombres y apellidos solo deben contener letras y espacios.'
+        });
+      }
+
+      // 4. Validar documento
+      if (!/^\d{6,15}$/.test(documentoLimpio)) {
+        return res.status(400).json({
+          mensaje: 'El documento debe contener entre 6 y 15 números.'
+        });
+      }
+
+      // 5. Validar correo
+      const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!formatoCorreo.test(correoLimpio)) {
+        return res.status(400).json({
+          mensaje: 'Ingresa un correo electrónico válido.'
+        });
+      }
+
+      // 6. Validar teléfono
+      const telefonoNumerico = telefonoLimpio.replace(/\s/g, '');
+
+      if (!/^\+?\d{7,15}$/.test(telefonoNumerico)) {
+        return res.status(400).json({
+          mensaje: 'Ingresa un teléfono válido de entre 7 y 15 números.'
+        });
+      }
+
+      // 7. Comprobar que el documento no esté registrado
+      const documentoExistente = await sql`
+        SELECT id_paciente
+        FROM pacientes
+        WHERE documento = ${documentoLimpio}
+        LIMIT 1
+      `;
+
+      if (documentoExistente.length > 0) {
+        return res.status(409).json({
+          mensaje: 'Ya existe un paciente registrado con ese documento.'
+        });
+      }
+
+      // 8. Comprobar que el correo no esté registrado
+      const correoExistente = await sql`
+        SELECT id_paciente
+        FROM pacientes
+        WHERE LOWER(correo) = ${correoLimpio}
+        LIMIT 1
+      `;
+
+      if (correoExistente.length > 0) {
+        return res.status(409).json({
+          mensaje: 'Ya existe un paciente registrado con ese correo.'
+        });
+      }
+
+      // 9. Registrar solamente al paciente
+      // No se crea ningún usuario ni contraseña.
+      const resultado = await sql`
+        INSERT INTO pacientes (
+          nombres,
+          apellidos,
+          documento,
+          correo,
+          telefono
+        )
+        VALUES (
+          ${nombresLimpios},
+          ${apellidosLimpios},
+          ${documentoLimpio},
+          ${correoLimpio},
+          ${telefonoNumerico}
+        )
+        RETURNING
+          id_paciente,
+          nombres,
+          apellidos,
+          documento,
+          correo,
+          telefono
+      `;
+
+      return res.status(201).json({
+        mensaje: 'Paciente registrado correctamente.',
+        paciente: resultado[0]
+      });
+
+    } catch (error) {
+      console.error('Error al registrar paciente:', error);
+
+      if (error.code === '23505') {
+        return res.status(409).json({
+          mensaje: 'El documento o correo ya se encuentra registrado.'
+        });
+      }
+
+      return res.status(500).json({
+        mensaje: 'No fue posible registrar al paciente.'
+      });
+    }
+  }
+);
+
+
+app.get(
+  '/api/pacientes/buscar',
+  verificarToken,
+  autorizarRoles('recepcionista', 'administrador'),
+  async (req, res) => {
+    try {
+      const termino = (req.query.termino || '').trim();
+
+      if (!termino) {
+        return res.status(400).json({
+          mensaje: 'Debes ingresar un nombre o número de documento para buscar.'
+        });
+      }
+
+      const patron = `%${termino}%`;
+
+      const pacientes = await sql`
+        SELECT
+          id_paciente,
+          nombres,
+          apellidos,
+          documento,
+          correo,
+          telefono
+        FROM pacientes
+        WHERE
+          documento ILIKE ${patron}
+          OR nombres ILIKE ${patron}
+          OR apellidos ILIKE ${patron}
+          OR CONCAT(nombres, ' ', apellidos) ILIKE ${patron}
+        ORDER BY nombres ASC
+      `;
+
+      return res.status(200).json({
+        mensaje: pacientes.length > 0
+          ? 'Pacientes encontrados.'
+          : 'No se encontraron pacientes.',
+        total: pacientes.length,
+        pacientes
+      });
+
+    } catch (error) {
+      console.error('Error al buscar pacientes:', error);
+
+      return res.status(500).json({
+        mensaje: 'No fue posible realizar la búsqueda.'
+      });
+    }
+  }
+);
+
+
+app.get(
+  '/api/pacientes/perfil',
+  verificarToken,
+  autorizarRoles('paciente'),
+  async (req, res) => {
+    try {
+      const idPaciente = req.usuario.id_paciente;
+
+      if (!idPaciente) {
+        return res.status(403).json({
+          mensaje: 'La cuenta no tiene un paciente asociado.'
+        });
+      }
+
+      const resultado = await sql`
+        SELECT
+          id_paciente,
+          nombres,
+          apellidos,
+          documento,
+          correo,
+          telefono
+        FROM pacientes
+        WHERE id_paciente = ${idPaciente}
+        LIMIT 1
+      `;
+
+      if (resultado.length === 0) {
+        return res.status(404).json({
+          mensaje: 'No se encontró el perfil del paciente.'
+        });
+      }
+
+      return res.status(200).json({
+        mensaje: 'Perfil consultado correctamente.',
+        paciente: resultado[0]
+      });
+
+    } catch (error) {
+      console.error('Error al consultar perfil:', error);
+
+      return res.status(500).json({
+        mensaje: 'No fue posible consultar el perfil.'
+      });
+    }
+  }
+);
+
+
+app.patch(
+  '/api/pacientes/perfil',
+  verificarToken,
+  autorizarRoles('paciente'),
+  async (req, res) => {
+    try {
+      const idPaciente = req.usuario.id_paciente;
+      const { nombres, apellidos, correo, telefono } = req.body;
+
+      if (!idPaciente) {
+        return res.status(403).json({
+          mensaje: 'La cuenta no tiene un paciente asociado.'
+        });
+      }
+
+      if (!nombres || !apellidos || !correo || !telefono) {
+        return res.status(400).json({
+          mensaje: 'Todos los campos son obligatorios.'
+        });
+      }
+
+      const nombresLimpios = nombres.trim();
+      const apellidosLimpios = apellidos.trim();
+      const correoLimpio = correo.trim().toLowerCase();
+      const telefonoLimpio = telefono.trim().replace(/\s/g, '');
+
+      const expresionNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$/;
+      const expresionCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (
+        !expresionNombre.test(nombresLimpios) ||
+        !expresionNombre.test(apellidosLimpios)
+      ) {
+        return res.status(400).json({
+          mensaje: 'Los nombres y apellidos solo deben contener letras y espacios.'
+        });
+      }
+
+      if (!expresionCorreo.test(correoLimpio)) {
+        return res.status(400).json({
+          mensaje: 'Ingresa un correo electrónico válido.'
+        });
+      }
+
+      if (!/^\+?\d{7,15}$/.test(telefonoLimpio)) {
+        return res.status(400).json({
+          mensaje: 'Ingresa un teléfono válido de entre 7 y 15 números.'
+        });
+      }
+
+      const correoExistente = await sql`
+  SELECT id_paciente
+  FROM pacientes
+  WHERE LOWER(correo) = ${correoLimpio}
+    AND id_paciente <> ${idPaciente}
+  LIMIT 1
+`;
+
+if (correoExistente.length > 0) {
+  return res.status(409).json({
+    mensaje: 'Ese correo ya está registrado por otro paciente.'
+  });
+}
+
+
+const usuarioActual = await sql`
+  SELECT id_usuario
+  FROM usuarios
+  WHERE id_paciente = ${idPaciente}
+  LIMIT 1
+`;
+
+if (usuarioActual.length === 0) {
+  return res.status(404).json({
+    mensaje: 'No se encontró la cuenta asociada al paciente.'
+  });
+}
+
+const correoUsuarioExistente = await sql`
+  SELECT id_usuario
+  FROM usuarios
+  WHERE LOWER(correo) = ${correoLimpio}
+    AND id_usuario <> ${usuarioActual[0].id_usuario}
+  LIMIT 1
+`;
+
+if (correoUsuarioExistente.length > 0) {
+  return res.status(409).json({
+    mensaje: 'Ese correo ya está asociado a otra cuenta.'
+  });
+}
+
+const resultado = await sql`
+  WITH paciente_actualizado AS (
+    UPDATE pacientes
+    SET
+      nombres = ${nombresLimpios},
+      apellidos = ${apellidosLimpios},
+      correo = ${correoLimpio},
+      telefono = ${telefonoLimpio}
+    WHERE id_paciente = ${idPaciente}
+    RETURNING
+      id_paciente,
+      nombres,
+      apellidos,
+      documento,
+      correo,
+      telefono
+  ),
+  usuario_actualizado AS (
+    UPDATE usuarios
+    SET correo = ${correoLimpio}
+    WHERE id_usuario = ${usuarioActual[0].id_usuario}
+    RETURNING id_usuario
+  )
+  SELECT
+    id_paciente,
+    nombres,
+    apellidos,
+    documento,
+    correo,
+    telefono
+  FROM paciente_actualizado
+`;
+
+      if (resultado.length === 0) {
+        return res.status(404).json({
+          mensaje: 'No se encontró el perfil del paciente.'
+        });
+      }
+
+      return res.status(200).json({
+        mensaje: 'Perfil actualizado correctamente.',
+        paciente: resultado[0]
+      });
+
+    } catch (error) {
+      console.error('Error al actualizar perfil:', error);
+
+      if (error.code === '23505') {
+        return res.status(409).json({
+          mensaje: 'Ese correo ya se encuentra registrado.'
+        });
+      }
+
+      return res.status(500).json({
+        mensaje: 'No fue posible actualizar el perfil.'
+      });
+    }
+  }
+);
+
   app.get(
   '/api/pacientes',
   verificarToken,
@@ -618,16 +1136,6 @@ app.post(
     }
   });
 
-  // ========================================
-  // CONSULTAR CITAS CON PACIENTE Y MÉDICO
-  // ========================================
-  // ========================================
-// CONSULTAR CITAS DEL PACIENTE AUTENTICADO
-// ========================================
-
-  // ========================================
-  // CONSULTAR CITAS SEGÚN EL ROL
-  // ========================================
   app.get(
     '/api/citas',
     verificarToken,
@@ -734,10 +1242,6 @@ app.post(
     }
   );
 
-  
-// ==========================================
-// ACTIVAR O DESACTIVAR MÉDICOS
-// ==========================================
 app.patch(
   '/api/medicos/:id/estado',
   verificarToken,
@@ -747,21 +1251,18 @@ app.patch(
       const idMedico = Number(req.params.id);
       const { estado } = req.body;
 
-      // Validar identificador
       if (!Number.isInteger(idMedico) || idMedico <= 0) {
         return res.status(400).json({
           mensaje: 'El identificador del médico no es válido.'
         });
       }
 
-      // Validar estado solicitado
       if (!['activo', 'inactivo'].includes(estado)) {
         return res.status(400).json({
           mensaje: 'El estado debe ser activo o inactivo.'
         });
       }
 
-      // Verificar que el médico exista
       const medico = await sql`
         SELECT id_medico, estado
         FROM medicos
@@ -774,7 +1275,6 @@ app.patch(
         });
       }
 
-      // Si se solicita desactivar, verificar sus citas
       if (estado === 'inactivo') {
         const resultado = await sql`
           SELECT COUNT(*)::int AS cantidad
@@ -794,7 +1294,6 @@ app.patch(
         }
       }
 
-      // Actualizar estado
       const actualizado = await sql`
         UPDATE medicos
         SET estado = ${estado}
@@ -817,31 +1316,22 @@ app.patch(
   }
 );
 
-
-  // ========================================
-  // INICIAR SERVIDOR
-  // ========================================
   const PORT = process.env.PORT || 3000;
 
-// ==========================================
-// AGENDAR UNA CITA MÉDICA
-// ==========================================
 app.post(
     '/api/citas',
     verificarToken,
-    autorizarRoles('paciente'),
+    autorizarRoles('paciente', 'recepcionista'),
     async (req, res) => {
         try {
             const { id_medico, fecha, hora, motivo } = req.body;
 
-            // Validar campos obligatorios
             if (!id_medico || !fecha || !hora || !motivo) {
                 return res.status(400).json({
                     mensaje: 'Todos los campos son obligatorios.'
                 });
             }
 
-            // Validar identificador del médico
             const medicoId = Number(id_medico);
 
             if (!Number.isInteger(medicoId) || medicoId <= 0) {
@@ -850,14 +1340,12 @@ app.post(
                 });
             }
 
-            // Validar formato de fecha
             if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
                 return res.status(400).json({
                     mensaje: 'La fecha no tiene un formato válido.'
                 });
             }
 
-            // Validar que la fecha exista y no sea anterior a hoy en Colombia
             const fechaIngresada = new Date(`${fecha}T12:00:00-05:00`);
 
             if (
@@ -881,32 +1369,54 @@ app.post(
                     mensaje: 'No puedes agendar una cita en una fecha pasada.'
                 });
             }
-
-            // Validar formato de hora
             if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) {
                 return res.status(400).json({
                     mensaje: 'La hora ingresada no es válida.'
                 });
             }
 
-            // Validar motivo
             if (typeof motivo !== 'string' || !motivo.trim()) {
                 return res.status(400).json({
                     mensaje: 'Debes escribir el motivo de la consulta.'
                 });
             }
 
-            // Obtener el paciente desde el token, no desde el formulario
-            const id_paciente = req.usuario.id_paciente;
+            let id_paciente;
 
-            if (!id_paciente) {
-                return res.status(403).json({
-                    mensaje: 'Tu cuenta no está vinculada a un paciente.'
-                });
-            }
+// Si registra un paciente, se utiliza el paciente vinculado a su cuenta.
+if (req.usuario.rol === 'paciente') {
+    id_paciente = req.usuario.id_paciente;
 
+    if (!id_paciente) {
+        return res.status(403).json({
+            mensaje: 'Tu cuenta no está vinculada a un paciente.'
+        });
+    }
+}
 
-// Comprobar que el médico exista y esté activo
+// Si registra un recepcionista, se utiliza el paciente seleccionado.
+if (req.usuario.rol === 'recepcionista') {
+    id_paciente = Number(req.body.id_paciente);
+
+    if (!Number.isInteger(id_paciente) || id_paciente <= 0) {
+        return res.status(400).json({
+            mensaje: 'Debes seleccionar un paciente válido.'
+        });
+    }
+
+    const pacienteExiste = await sql`
+        SELECT id_paciente
+        FROM pacientes
+        WHERE id_paciente = ${id_paciente}
+    `;
+
+    if (pacienteExiste.length === 0) {
+        return res.status(404).json({
+            mensaje: 'El paciente seleccionado no existe.'
+        });
+    }
+}
+
 const medico = await sql`
     SELECT id_medico, estado
     FROM medicos
@@ -925,23 +1435,14 @@ if (medico[0].estado !== 'activo') {
     });
 }
 
-
-// ==========================================
-// VALIDAR DISPONIBILIDAD SEGÚN EL HORARIO
-// ==========================================
-
-// Obtener el día de la semana de la fecha solicitada
-// 1 = lunes, 2 = martes ... 7 = domingo
 const diaSemana = (() => {
     const dia = new Date(`${fecha}T12:00:00-05:00`).getDay();
     return dia === 0 ? 7 : dia;
 })();
 
-// Convertir la hora solicitada a minutos
 const [horas, minutos] = hora.split(':').map(Number);
 const minutosSolicitados = horas * 60 + minutos;
 
-// Consultar los horarios activos del médico para ese día
 const horarios = await sql`
     SELECT
         hora_inicio,
@@ -953,7 +1454,6 @@ const horarios = await sql`
       AND activo = TRUE
 `;
 
-// Buscar un horario que permita atender la cita completa
 const horarioValido = horarios.find((h) => {
     const [horaInicio, minutoInicio] = String(h.hora_inicio)
         .slice(0, 5).split(':').map(Number);
@@ -978,7 +1478,6 @@ if (!horarioValido) {
     });
 }
 
-// Comprobar que no exista otra cita que se cruce con el espacio solicitado
 const duracion = Number(horarioValido.duracion_cita);
 
 const conflicto = await sql`
@@ -1002,9 +1501,6 @@ if (conflicto.length > 0) {
     });
 }
 
-
-
-            // Registrar la cita
             const resultado = await sql`
                 INSERT INTO citas (
                     fecha,
@@ -1040,7 +1536,6 @@ if (conflicto.length > 0) {
         } catch (error) {
             console.error('Error al agendar cita:', error);
 
-            // Horario ocupado: restricción única de Neon
             if (error.code === '23505') {
                 return res.status(409).json({
                     mensaje: 'Este médico ya tiene una cita en esa fecha y hora. Selecciona otro horario.'
@@ -1054,10 +1549,6 @@ if (conflicto.length > 0) {
     }
 );
 
-
-// ==========================================
-// CONSULTAR HORARIOS DISPONIBLES DE UN MÉDICO
-// ==========================================
 app.get(
   '/api/medicos/:id/disponibilidad',
   verificarToken,
@@ -1184,12 +1675,6 @@ app.get(
   }
 );
 
-
-// ==========================================
-// GESTIÓN DE HORARIOS MÉDICOS
-// ==========================================
-
-// CONSULTAR HORARIOS DE UN MÉDICO (ADMINISTRADOR)
 app.get(
   '/api/medicos/:id/horarios',
   verificarToken,
@@ -1230,8 +1715,6 @@ app.get(
   }
 );
 
-
-// REGISTRAR HORARIO DE UN MÉDICO (ADMINISTRADOR)
 app.post(
   '/api/medicos/:id/horarios',
   verificarToken,
@@ -1340,11 +1823,6 @@ app.post(
     }
   }
 );
-
-
-// ==========================================
-// EDITAR HORARIO MÉDICO (ADMINISTRADOR)
-// ==========================================
 
 app.patch(
   '/api/horarios/:id',
