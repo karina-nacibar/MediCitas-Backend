@@ -14,39 +14,6 @@
 
   const sql = neon(process.env.DATABASE_URL);
 
-  app.post('/api/restablecer-recepcionista', async (req, res) => {
-  try {
-    const nuevaContrasena = 'Recepcion2026*';
-
-    const hash = await bcrypt.hash(nuevaContrasena, 10);
-
-    const resultado = await sql`
-      UPDATE usuarios
-      SET contrasena = ${hash}
-      WHERE id_usuario = 7
-        AND rol = 'recepcionista'
-      RETURNING id_usuario, nombre, correo, rol
-    `;
-
-    if (resultado.length === 0) {
-      return res.status(404).json({
-        mensaje: 'No se encontró la cuenta de recepcionista.'
-      });
-    }
-
-    res.json({
-      mensaje: 'Contraseña restablecida correctamente.',
-      usuario: resultado[0]
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      mensaje: 'Error al restablecer la contraseña.'
-    });
-  }
-});
-
 function verificarToken(req, res, next) {
   const encabezado = req.headers.authorization;
 
@@ -2051,6 +2018,85 @@ app.patch(
 
       return res.status(500).json({
         mensaje: 'No fue posible actualizar el horario.'
+      });
+    }
+  }
+);
+
+
+// CANCELAR UNA CITA PROPIA COMO PACIENTE
+app.patch(
+  '/api/citas/:id/cancelar',
+  verificarToken,
+  autorizarRoles('paciente'),
+  async (req, res) => {
+    try {
+      const idCita = Number(req.params.id);
+      const idPaciente = Number(req.usuario.id_paciente);
+
+      if (!Number.isInteger(idCita) || idCita <= 0) {
+        return res.status(400).json({
+          mensaje: 'El identificador de la cita no es válido.'
+        });
+      }
+
+      if (!Number.isInteger(idPaciente) || idPaciente <= 0) {
+        return res.status(403).json({
+          mensaje: 'Tu cuenta no tiene un paciente asociado.'
+        });
+      }
+
+      // Buscar únicamente una cita perteneciente al paciente.
+      const cita = await sql`
+        SELECT id_cita, estado
+        FROM citas
+        WHERE id_cita = ${idCita}
+          AND id_paciente = ${idPaciente}
+      `;
+
+      if (cita.length === 0) {
+        return res.status(404).json({
+          mensaje: 'No se encontró una cita asociada a tu cuenta.'
+        });
+      }
+
+      if (cita[0].estado === 'Cancelada') {
+        return res.status(409).json({
+          mensaje: 'Esta cita ya está cancelada.'
+        });
+      }
+
+      if (!['Pendiente', 'Confirmada'].includes(cita[0].estado)) {
+        return res.status(409).json({
+          mensaje: 'Esta cita no se puede cancelar.'
+        });
+      }
+
+      const resultado = await sql`
+        UPDATE citas
+        SET estado = 'Cancelada'
+        WHERE id_cita = ${idCita}
+          AND id_paciente = ${idPaciente}
+          AND estado IN ('Pendiente', 'Confirmada')
+        RETURNING id_cita, estado
+      `;
+
+      if (resultado.length === 0) {
+        return res.status(409).json({
+          mensaje: 'La cita ya no se encuentra disponible para cancelar.'
+        });
+      }
+
+      return res.status(200).json({
+        mensaje: 'Tu cita fue cancelada correctamente.',
+        cita: resultado[0]
+      });
+
+    } catch (error) {
+      console.error('Error al cancelar cita:', error);
+
+      return res.status(500).json({
+        mensaje: 'No fue posible cancelar la cita.'
       });
     }
   }
