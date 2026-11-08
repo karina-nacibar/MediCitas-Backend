@@ -1123,6 +1123,7 @@ const resultado = await sql`
           citas = await sql`
             SELECT
               c.id_cita,
+              c.id_paciente,
               c.fecha,
               c.hora,
               c.motivo,
@@ -1153,6 +1154,7 @@ const resultado = await sql`
           citas = await sql`
             SELECT
               c.id_cita,
+              c.id_paciente,
               c.fecha,
               c.hora,
               c.motivo,
@@ -1177,6 +1179,7 @@ const resultado = await sql`
           citas = await sql`
             SELECT
               c.id_cita,
+              c.id_paciente,
               c.fecha,
               c.hora,
               c.motivo,
