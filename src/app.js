@@ -1124,6 +1124,7 @@ const resultado = await sql`
             SELECT
               c.id_cita,
               c.id_paciente,
+              c.id_medico,
               c.fecha,
               c.hora,
               c.motivo,
@@ -1155,6 +1156,7 @@ const resultado = await sql`
             SELECT
               c.id_cita,
               c.id_paciente,
+              c.id_medico,
               c.fecha,
               c.hora,
               c.motivo,
@@ -1180,6 +1182,7 @@ const resultado = await sql`
             SELECT
               c.id_cita,
               c.id_paciente,
+              c.id_medico,
               c.fecha,
               c.hora,
               c.motivo,
@@ -1535,6 +1538,244 @@ if (conflictoPaciente.length > 0) {
 
             return res.status(500).json({
                 mensaje: 'Ocurrió un error al intentar agendar la cita.'
+            });
+        }
+    }
+);
+
+
+app.patch(
+    '/api/citas/:id/reprogramar',
+    verificarToken,
+    autorizarRoles('paciente'),
+    async (req, res) => {
+        try {
+            const idCita = Number(req.params.id);
+            const { id_medico, fecha, hora } = req.body;
+            const idPaciente = req.usuario.id_paciente;
+
+            if (!Number.isInteger(idCita) || idCita <= 0) {
+                return res.status(400).json({
+                    mensaje: 'La cita seleccionada no es válida.'
+                });
+            }
+
+            if (!idPaciente) {
+                return res.status(403).json({
+                    mensaje: 'Tu cuenta no está vinculada a un paciente.'
+                });
+            }
+
+            if (!id_medico || !fecha || !hora) {
+                return res.status(400).json({
+                    mensaje: 'Debes seleccionar un médico, una fecha y una hora.'
+                });
+            }
+
+            const medicoId = Number(id_medico);
+
+            if (!Number.isInteger(medicoId) || medicoId <= 0) {
+                return res.status(400).json({
+                    mensaje: 'El médico seleccionado no es válido.'
+                });
+            }
+
+            // Verificar que la cita pertenezca al paciente
+            const citaActual = await sql`
+                SELECT id_cita, id_paciente, estado, motivo
+                FROM citas
+                WHERE id_cita = ${idCita}
+                  AND id_paciente = ${idPaciente}
+            `;
+
+            if (citaActual.length === 0) {
+                return res.status(404).json({
+                    mensaje: 'No se encontró la cita seleccionada.'
+                });
+            }
+
+            if (!['Pendiente', 'Confirmada'].includes(citaActual[0].estado)) {
+                return res.status(409).json({
+                    mensaje: 'Solo puedes reprogramar citas pendientes o confirmadas.'
+                });
+            }
+
+            // Validar fecha
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+                return res.status(400).json({
+                    mensaje: 'La fecha no tiene un formato válido.'
+                });
+            }
+
+            const fechaIngresada = new Date(`${fecha}T12:00:00-05:00`);
+
+            if (
+                Number.isNaN(fechaIngresada.getTime()) ||
+                fechaIngresada.toISOString().slice(0, 10) !== fecha
+            ) {
+                return res.status(400).json({
+                    mensaje: 'La fecha ingresada no es válida.'
+                });
+            }
+
+            const hoyColombia = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'America/Bogota',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(new Date());
+
+            if (fecha < hoyColombia) {
+                return res.status(400).json({
+                    mensaje: 'No puedes reprogramar una cita para una fecha pasada.'
+                });
+            }
+
+            if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) {
+                return res.status(400).json({
+                    mensaje: 'La hora ingresada no es válida.'
+                });
+            }
+
+            // Verificar que el médico exista y esté activo
+            const medico = await sql`
+                SELECT id_medico, estado
+                FROM medicos
+                WHERE id_medico = ${medicoId}
+            `;
+
+            if (medico.length === 0) {
+                return res.status(404).json({
+                    mensaje: 'El médico seleccionado no existe.'
+                });
+            }
+
+            if (medico[0].estado !== 'activo') {
+                return res.status(409).json({
+                    mensaje: 'No puedes seleccionar un médico inactivo.'
+                });
+            }
+
+            // Determinar el día de la semana
+            const diaSemana = (() => {
+                const dia = new Date(`${fecha}T12:00:00-05:00`).getDay();
+                return dia === 0 ? 7 : dia;
+            })();
+
+            const [horas, minutos] = hora.split(':').map(Number);
+            const minutosSolicitados = horas * 60 + minutos;
+
+            // Consultar horarios del médico
+            const horarios = await sql`
+                SELECT hora_inicio, hora_fin, duracion_cita
+                FROM horarios_medicos
+                WHERE id_medico = ${medicoId}
+                  AND dia_semana = ${diaSemana}
+                  AND activo = TRUE
+            `;
+
+            const horarioValido = horarios.find((h) => {
+                const [horaInicio, minutoInicio] = String(h.hora_inicio)
+                    .slice(0, 5).split(':').map(Number);
+
+                const [horaFin, minutoFin] = String(h.hora_fin)
+                    .slice(0, 5).split(':').map(Number);
+
+                const inicio = horaInicio * 60 + minutoInicio;
+                const fin = horaFin * 60 + minutoFin;
+                const duracion = Number(h.duracion_cita);
+
+                return (
+                    minutosSolicitados >= inicio &&
+                    minutosSolicitados + duracion <= fin &&
+                    (minutosSolicitados - inicio) % duracion === 0
+                );
+            });
+
+            if (!horarioValido) {
+                return res.status(409).json({
+                    mensaje: 'El médico no tiene disponibilidad para esa hora. Selecciona un horario válido.'
+                });
+            }
+
+            const duracion = Number(horarioValido.duracion_cita);
+
+            // Verificar que el médico no tenga otra cita en ese horario
+            const conflictoMedico = await sql`
+                SELECT id_cita
+                FROM citas
+                WHERE id_medico = ${medicoId}
+                  AND fecha = ${fecha}
+                  AND id_cita <> ${idCita}
+                  AND estado IN ('Pendiente', 'Confirmada')
+                  AND hora < (
+                      ${hora}::time + (${duracion} * INTERVAL '1 minute')
+                  )
+                  AND (
+                      hora + (${duracion} * INTERVAL '1 minute')
+                  ) > ${hora}::time
+                LIMIT 1
+            `;
+
+            if (conflictoMedico.length > 0) {
+                return res.status(409).json({
+                    mensaje: 'Ese horario ya está ocupado. Selecciona otro.'
+                });
+            }
+
+            // Verificar que el paciente no tenga otra cita en ese horario
+            const conflictoPaciente = await sql`
+                SELECT id_cita
+                FROM citas
+                WHERE id_paciente = ${idPaciente}
+                  AND fecha = ${fecha}
+                  AND id_cita <> ${idCita}
+                  AND estado IN ('Pendiente', 'Confirmada')
+                  AND hora < (
+                      ${hora}::time + (${duracion} * INTERVAL '1 minute')
+                  )
+                  AND (
+                      hora + (${duracion} * INTERVAL '1 minute')
+                  ) > ${hora}::time
+                LIMIT 1
+            `;
+
+            if (conflictoPaciente.length > 0) {
+                return res.status(409).json({
+                    mensaje: 'Ya tienes otra cita en ese horario. Selecciona una hora diferente.'
+                });
+            }
+
+            // Actualizar la cita existente
+            const resultado = await sql`
+                UPDATE citas
+                SET
+                    id_medico = ${medicoId},
+                    fecha = ${fecha},
+                    hora = ${hora},
+                    motivo = ${citaActual[0].motivo}
+                WHERE id_cita = ${idCita}
+                  AND id_paciente = ${idPaciente}
+                RETURNING
+                    id_cita,
+                    fecha,
+                    hora,
+                    motivo,
+                    estado,
+                    id_paciente,
+                    id_medico
+            `;
+
+            return res.status(200).json({
+                mensaje: 'Cita reprogramada correctamente.',
+                cita: resultado[0]
+            });
+
+        } catch (error) {
+            console.error('Error al reprogramar la cita:', error);
+
+            return res.status(500).json({
+                mensaje: 'Ocurrió un error al intentar reprogramar la cita.'
             });
         }
     }
