@@ -1980,6 +1980,76 @@ app.patch(
     }
 );
 
+// REGISTRAR RESULTADO DE LA CONSULTA
+app.patch(
+    '/api/citas/:id/resultado',
+    verificarToken,
+    autorizarRoles('medico'),
+    async (req, res) => {
+        try {
+            const idCita = Number(req.params.id);
+            const { estado } = req.body;
+
+            if (!Number.isInteger(idCita) || idCita <= 0) {
+                return res.status(400).json({
+                    mensaje: 'El identificador de la cita no es válido.'
+                });
+            }
+
+            if (!['Atendida', 'No asistió'].includes(estado)) {
+                return res.status(400).json({
+                    mensaje: 'El resultado de la consulta no es válido.'
+                });
+            }
+
+            const cita = await sql`
+                SELECT id_cita, id_medico, estado
+                FROM citas
+                WHERE id_cita = ${idCita}
+            `;
+
+            if (cita.length === 0) {
+                return res.status(404).json({
+                    mensaje: 'La cita no existe.'
+                });
+            }
+
+            if (Number(cita[0].id_medico) !== Number(req.usuario.id_medico)) {
+                return res.status(403).json({
+                    mensaje: 'No tienes permiso para modificar esta cita.'
+                });
+            }
+
+            if (!['Pendiente', 'Confirmada'].includes(cita[0].estado)) {
+                return res.status(409).json({
+                    mensaje: 'Esta cita ya no permite registrar resultados.'
+                });
+            }
+
+            const resultado = await sql`
+                UPDATE citas
+                SET estado = ${estado}
+                WHERE id_cita = ${idCita}
+                RETURNING id_cita, estado
+            `;
+
+            return res.status(200).json({
+                mensaje: estado === 'Atendida'
+                    ? 'Consulta registrada como atendida.'
+                    : 'Consulta registrada como no asistida.',
+                cita: resultado[0]
+            });
+
+        } catch (error) {
+            console.error('Error al registrar el resultado:', error);
+
+            return res.status(500).json({
+                mensaje: 'No fue posible registrar el resultado de la consulta.'
+            });
+        }
+    }
+);
+
 // CONSULTAR LOS HORARIOS DEL MÉDICO QUE INICIÓ SESIÓN
 app.get(
   '/api/medico/mi-agenda',
