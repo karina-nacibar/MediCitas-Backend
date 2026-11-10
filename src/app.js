@@ -1471,6 +1471,27 @@ if (conflicto.length > 0) {
     });
 }
 
+const conflictoPaciente = await sql`
+    SELECT id_cita
+    FROM citas
+    WHERE id_paciente = ${id_paciente}
+      AND fecha = ${fecha}
+      AND estado IN ('Pendiente', 'Confirmada')
+      AND hora < (
+          ${hora}::time + (${duracion} * INTERVAL '1 minute')
+      )
+      AND (
+          hora + (${duracion} * INTERVAL '1 minute')
+      ) > ${hora}::time
+    LIMIT 1
+`;
+
+if (conflictoPaciente.length > 0) {
+    return res.status(409).json({
+        mensaje: 'Ya tienes otra cita en ese horario. Selecciona una hora diferente.'
+    });
+}
+
             const resultado = await sql`
                 INSERT INTO citas (
                     fecha,
