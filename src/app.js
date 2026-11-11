@@ -1152,6 +1152,9 @@ const resultado = await sql`
             });
           }
 
+          const { fecha_inicio, fecha_fin } = req.query;
+
+          if (fecha_inicio && fecha_fin) {
           citas = await sql`
             SELECT
               c.id_cita,
@@ -1174,6 +1177,7 @@ const resultado = await sql`
             INNER JOIN especialidades e
               ON m.id_especialidad = e.id_especialidad
             WHERE c.id_medico = ${id_medico}
+              AND c.fecha BETWEEN ${fecha_inicio} AND ${fecha_fin}
             ORDER BY c.fecha, c.hora
           `;
 
@@ -1199,10 +1203,35 @@ const resultado = await sql`
               ON c.id_medico = m.id_medico
             INNER JOIN especialidades e
               ON m.id_especialidad = e.id_especialidad
+            WHERE c.id_medico = ${id_medico}  
             ORDER BY c.fecha, c.hora
           `;
         }
-
+        } else {
+          citas = await sql`
+            SELECT
+              c.id_cita,
+              c.id_paciente,
+              c.id_medico,
+              c.fecha,
+              c.hora,
+              c.motivo,
+              c.estado,
+              p.nombres AS nombres_paciente,
+              p.apellidos AS apellidos_paciente,
+              m.nombres AS nombres_medico,
+              m.apellidos AS apellidos_medico,
+              e.nombre AS especialidad
+            FROM citas c
+            INNER JOIN pacientes p
+              ON c.id_paciente = p.id_paciente
+            INNER JOIN medicos m
+              ON c.id_medico = m.id_medico
+            INNER JOIN especialidades e
+              ON m.id_especialidad = e.id_especialidad
+            ORDER BY c.fecha, c.hora
+          `;
+        }
         res.json(citas);
 
       } catch (error) {
@@ -1213,6 +1242,7 @@ const resultado = await sql`
         });
       }
     }
+  
   );
 
 app.patch(
@@ -1496,31 +1526,34 @@ if (conflictoPaciente.length > 0) {
 }
 
             const resultado = await sql`
-                INSERT INTO citas (
-                    fecha,
-                    hora,
-                    motivo,
-                    estado,
-                    id_paciente,
-                    id_medico
-                )
-                VALUES (
-                    ${fecha},
-                    ${hora},
-                    ${motivo.trim()},
-                    'Pendiente',
-                    ${id_paciente},
-                    ${medicoId}
-                )
-                RETURNING
-                    id_cita,
-                    fecha,
-                    hora,
-                    motivo,
-                    estado,
-                    id_paciente,
-                    id_medico
-            `;
+    INSERT INTO citas (
+        fecha,
+        hora,
+        motivo,
+        estado,
+        id_paciente,
+        id_medico,
+        duracion_minutos
+    )
+    VALUES (
+        ${fecha},
+        ${hora},
+        ${motivo.trim()},
+        'Pendiente',
+        ${id_paciente},
+        ${medicoId},
+        ${duracion}
+    )
+    RETURNING
+        id_cita,
+        fecha,
+        hora,
+        motivo,
+        estado,
+        id_paciente,
+        id_medico,
+        duracion_minutos
+`;
 
             return res.status(201).json({
                 mensaje: 'Cita agendada correctamente.',
@@ -1530,11 +1563,11 @@ if (conflictoPaciente.length > 0) {
         } catch (error) {
             console.error('Error al agendar cita:', error);
 
-            if (error.code === '23505') {
-                return res.status(409).json({
-                    mensaje: 'Este médico ya tiene una cita en esa fecha y hora. Selecciona otro horario.'
-                });
-            }
+            if (error.code === '23505' || error.code === '23P01') {
+    return res.status(409).json({
+        mensaje: 'El horario seleccionado ya está ocupado o se superpone con otra cita. Selecciona otro horario.'
+    });
+}
 
             return res.status(500).json({
                 mensaje: 'Ocurrió un error al intentar agendar la cita.'
@@ -1547,12 +1580,15 @@ if (conflictoPaciente.length > 0) {
 app.patch(
     '/api/citas/:id/reprogramar',
     verificarToken,
-    autorizarRoles('paciente'),
+    autorizarRoles('paciente', 'recepcionista'),
     async (req, res) => {
         try {
             const idCita = Number(req.params.id);
-            const { id_medico, fecha, hora } = req.body;
-            const idPaciente = req.usuario.id_paciente;
+const { id_medico, fecha, hora, id_paciente } = req.body;
+
+const idPaciente = req.usuario.rol === 'recepcionista'
+    ? Number(id_paciente)
+    : req.usuario.id_paciente;
 
             if (!Number.isInteger(idCita) || idCita <= 0) {
                 return res.status(400).json({
@@ -1560,11 +1596,11 @@ app.patch(
                 });
             }
 
-            if (!idPaciente) {
-                return res.status(403).json({
-                    mensaje: 'Tu cuenta no está vinculada a un paciente.'
-                });
-            }
+            if (!Number.isInteger(idPaciente) || idPaciente <= 0) {
+    return res.status(400).json({
+        mensaje: 'Debes seleccionar un paciente válido para reprogramar la cita.'
+    });
+}
 
             if (!id_medico || !fecha || !hora) {
                 return res.status(400).json({
@@ -1750,10 +1786,11 @@ app.patch(
             const resultado = await sql`
                 UPDATE citas
                 SET
-                    id_medico = ${medicoId},
-                    fecha = ${fecha},
-                    hora = ${hora},
-                    motivo = ${citaActual[0].motivo}
+    id_medico = ${medicoId},
+    fecha = ${fecha},
+    hora = ${hora},
+    motivo = ${citaActual[0].motivo},
+    duracion_minutos = ${duracion}
                 WHERE id_cita = ${idCita}
                   AND id_paciente = ${idPaciente}
                 RETURNING
@@ -1763,7 +1800,8 @@ app.patch(
                     motivo,
                     estado,
                     id_paciente,
-                    id_medico
+                    id_medico,
+                    duracion_minutos
             `;
 
             return res.status(200).json({
@@ -1772,12 +1810,18 @@ app.patch(
             });
 
         } catch (error) {
-            console.error('Error al reprogramar la cita:', error);
+    console.error('Error al reprogramar la cita:', error);
 
-            return res.status(500).json({
-                mensaje: 'Ocurrió un error al intentar reprogramar la cita.'
-            });
-        }
+    if (error.code === '23P01' || error.code === '23505') {
+        return res.status(409).json({
+            mensaje: 'El horario seleccionado ya está ocupado o se superpone con otra cita. Selecciona otro horario.'
+        });
+    }
+
+    return res.status(500).json({
+        mensaje: 'Ocurrió un error al intentar reprogramar la cita.'
+    });
+}
     }
 );
 
