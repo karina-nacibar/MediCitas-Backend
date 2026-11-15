@@ -57,4 +57,4 @@ async function crearUsuarioPrueba() {
   }
 }
 
-crearUsuarioPrueba();
+void crearUsuarioPrueba();

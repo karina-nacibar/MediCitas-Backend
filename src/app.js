@@ -145,7 +145,7 @@ if (!expresionNombre.test(apellidosLimpios)) {
         });
       }
 
-      const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const formatoCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
 
       if (!formatoCorreo.test(correoLimpio)) {
         return res.status(400).json({
@@ -611,7 +611,7 @@ app.post(
         });
       }
 
-      const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const formatoCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
 
       if (!formatoCorreo.test(correoNormalizado)) {
         return res.status(400).json({
@@ -738,7 +738,7 @@ app.post(
       }
 
       // 5. Validar correo
-      const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const formatoCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
 
       if (!formatoCorreo.test(correoLimpio)) {
         return res.status(400).json({
@@ -959,7 +959,7 @@ app.patch(
       const telefonoLimpio = telefono.trim().replace(/\s/g, '');
 
       const expresionNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$/;
-      const expresionCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const expresionCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
 
       if (
         !expresionNombre.test(nombresLimpios) ||
