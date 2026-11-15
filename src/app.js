@@ -9,8 +9,18 @@
 
   const app = express();
 
-  app.use(cors());
-  app.use(express.json());
+app.disable('x-powered-by');
+
+app.use(cors({
+  origin: [
+    'https://medicitas-frontend-one.vercel.app',
+    'http://localhost:5173'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
 
   const sql = neon(process.env.DATABASE_URL);
 
