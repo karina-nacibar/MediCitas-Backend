@@ -1533,16 +1533,22 @@ if (conflictoPaciente.length > 0) {
         estado,
         id_paciente,
         id_medico,
-        duracion_minutos
+        duracion_minutos,
+        periodo_cita
     )
-    VALUES (
+        VALUES (
         ${fecha},
         ${hora},
         ${motivo.trim()},
         'Pendiente',
         ${id_paciente},
         ${medicoId},
-        ${duracion}
+        ${duracion},
+        tsrange(
+            ${`${fecha} ${hora}`}::timestamp,
+            (${`${fecha} ${hora}`}::timestamp + (${duracion} * INTERVAL '1 minute')),
+            '[)'
+        )
     )
     RETURNING
         id_cita,
@@ -1552,7 +1558,8 @@ if (conflictoPaciente.length > 0) {
         estado,
         id_paciente,
         id_medico,
-        duracion_minutos
+        duracion_minutos,
+        periodo_cita
 `;
 
             return res.status(201).json({
@@ -2481,6 +2488,10 @@ app.patch(
   }
 );
 
+if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Servidor MediCitas ejecutándose en el puerto ${PORT}`);
   });
+}
+
+module.exports = app;
