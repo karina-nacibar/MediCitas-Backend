@@ -1,4 +1,3 @@
-
 const request = require('supertest');
 
 let conflictoEsperado = 'medico';
@@ -13,25 +12,21 @@ const mockSql = jest.fn(async (strings) => {
   }
 
   if (consulta.includes('FROM horarios_medicos')) {
-    return [{
-      hora_inicio: '08:00',
-      hora_fin: '12:00',
-      duracion_cita: 30
-    }];
+    return [
+      {
+        hora_inicio: '08:00',
+        hora_fin: '12:00',
+        duracion_cita: 30
+      }
+    ];
   }
 
   if (consulta.includes('FROM citas')) {
-    if (
-      consulta.includes('id_medico =') &&
-      conflictoEsperado === 'medico'
-    ) {
+    if (consulta.includes('id_medico =') && conflictoEsperado === 'medico') {
       return [{ id_cita: 123 }];
     }
 
-    if (
-      consulta.includes('id_paciente =') &&
-      conflictoEsperado === 'paciente'
-    ) {
+    if (consulta.includes('id_paciente =') && conflictoEsperado === 'paciente') {
       return [{ id_cita: 456 }];
     }
   }
@@ -39,17 +34,19 @@ const mockSql = jest.fn(async (strings) => {
   if (consulta.includes('INSERT INTO citas')) {
     consultaInsertCapturada = consulta;
 
-    return [{
-      id_cita: 789,
-      fecha: '2026-11-16',
-      hora: '09:00:00',
-      motivo: 'Consulta general',
-      estado: 'Pendiente',
-      id_paciente: 999,
-      id_medico: 1,
-      duracion_minutos: 30,
-      periodo_cita: '["2026-11-16 09:00:00","2026-11-16 09:30:00")'
-    }];
+    return [
+      {
+        id_cita: 789,
+        fecha: '2026-11-16',
+        hora: '09:00:00',
+        motivo: 'Consulta general',
+        estado: 'Pendiente',
+        id_paciente: 999,
+        id_medico: 1,
+        duracion_minutos: 30,
+        periodo_cita: '["2026-11-16 09:00:00","2026-11-16 09:30:00")'
+      }
+    ];
   }
 
   return [];
@@ -110,7 +107,7 @@ describe('Pruebas de conflictos de citas', () => {
       'Ya tienes otra cita en ese horario. Selecciona una hora diferente.'
     );
   });
-    test('Debe crear una cita incluyendo el periodo_cita', async () => {
+  test('Debe crear una cita incluyendo el periodo_cita', async () => {
     conflictoEsperado = 'ninguno';
     consultaInsertCapturada = '';
 
@@ -130,9 +127,9 @@ describe('Pruebas de conflictos de citas', () => {
     expect(consultaInsertCapturada).toContain('tsrange');
 
     expect(respuesta.body.cita).toEqual(
-  expect.objectContaining({
-    periodo_cita: expect.any(String)
-  })
-);
+      expect.objectContaining({
+        periodo_cita: expect.any(String)
+      })
+    );
   });
 });
