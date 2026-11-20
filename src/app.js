@@ -109,11 +109,15 @@ app.post('/api/auth/registro', async (req, res) => {
       });
     }
 
-    if (!validarTelefono(telefono)) {
-      return res.status(400).json({
-        mensaje: 'El teléfono debe contener exactamente 10 números.'
-      });
-    }
+    const telefonoLimpio = String(telefono ?? '')
+  .trim()
+  .replace(/^\+\d+\s*/, '');
+
+if (!validarTelefono(telefonoLimpio)) {
+  return res.status(400).json({
+    mensaje: 'El teléfono debe contener exactamente 10 números.'
+  });
+}
 
     if (!validarContrasena(contrasena)) {
       return res.status(400).json({
@@ -125,7 +129,6 @@ app.post('/api/auth/registro', async (req, res) => {
     const apellidosLimpios = apellidos.trim();
     const documentoLimpio = String(documento).trim();
     const correoLimpio = correo.trim().toLowerCase();
-    const telefonoLimpio = telefono.trim();
 
     const existentes = await sql`
       SELECT
