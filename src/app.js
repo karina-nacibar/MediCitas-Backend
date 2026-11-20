@@ -6,6 +6,19 @@ const { neon } = require('@neondatabase/serverless');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+const {
+  validarDocumento,
+  validarTelefono,
+  validarNombre,
+  validarCorreo,
+  validarContrasena,
+  validarId,
+  validarFecha,
+  validarHora,
+  validarDuracion,
+  validarEstado
+} = require('./utils/validaciones');
+
 const app = express();
 
 app.disable('x-powered-by');
@@ -76,92 +89,64 @@ app.post('/api/auth/registro', async (req, res) => {
       });
     }
 
-    const nombresLimpios = nombres.trim();
-    const apellidosLimpios = apellidos.trim();
-    const documentoLimpio = documento.trim();
-
-    if (!/^\d{6,15}$/.test(documentoLimpio)) {
-      return res.status(400).json({
-        mensaje: 'El documento debe contener entre 6 y 15 números.'
-      });
-    }
-    const correoLimpio = correo.trim().toLowerCase();
-    const telefonoLimpio = telefono.trim();
-    const telefonoNumerico = telefonoLimpio.replace(/\s/g, '');
-
-    if (!/^\+?\d{7,15}$/.test(telefonoNumerico)) {
-      return res.status(400).json({
-        mensaje: 'Ingresa un teléfono válido de entre 7 y 15 números.'
-      });
-    }
-
-    const expresionNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$/;
-
-    if (!expresionNombre.test(nombresLimpios)) {
-      return res.status(400).json({
-        mensaje: 'El nombre solo debe contener letras y espacios.'
-      });
-    }
-
-    if (!expresionNombre.test(apellidosLimpios)) {
-      return res.status(400).json({
-        mensaje: 'Los apellidos solo deben contener letras y espacios.'
-      });
-    }
-
     if (
-      !nombresLimpios ||
-      !apellidosLimpios ||
-      !documentoLimpio ||
-      !correoLimpio ||
-      !telefonoLimpio
+      !validarNombre(nombres) ||
+      !validarNombre(apellidos)
     ) {
       return res.status(400).json({
-        mensaje: 'Debes completar correctamente todos los campos.'
+        mensaje: 'Los nombres y apellidos deben contener entre 2 y 60 letras y espacios.'
+      });
+    }
+    if (!validarDocumento(documento)) {
+      return res.status(400).json({
+        mensaje: 'El documento debe contener exactamente 10 números.'
       });
     }
 
-    const formatoCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
-
-    if (!formatoCorreo.test(correoLimpio)) {
+    if (!validarCorreo(correo)) {
       return res.status(400).json({
         mensaje: 'Ingresa un correo electrónico válido.'
       });
     }
 
-    if (contrasena.length < 8) {
+    if (!validarTelefono(telefono)) {
+      return res.status(400).json({
+        mensaje: 'El teléfono debe contener exactamente 10 números.'
+      });
+    }
+
+    if (!validarContrasena(contrasena)) {
       return res.status(400).json({
         mensaje: 'La contraseña debe tener mínimo 8 caracteres.'
       });
     }
-    const tieneSimbolo = /[!@#$%^&*(),.?":{}|<>_\-+=]/.test(contrasena);
 
-    if (!tieneSimbolo) {
-      return res.status(400).json({
-        mensaje: 'La contraseña debe contener al menos un símbolo.'
-      });
-    }
+    const nombresLimpios = nombres.trim();
+    const apellidosLimpios = apellidos.trim();
+    const documentoLimpio = String(documento).trim();
+    const correoLimpio = correo.trim().toLowerCase();
+    const telefonoLimpio = telefono.trim();
 
     const existentes = await sql`
-        SELECT
-          EXISTS (
-            SELECT 1
-            FROM pacientes
-            WHERE correo = ${correoLimpio}
-          ) AS correo_paciente,
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM pacientes
+          WHERE correo = ${correoLimpio}
+        ) AS correo_paciente,
 
-          EXISTS (
-            SELECT 1
-            FROM usuarios
-            WHERE correo = ${correoLimpio}
-          ) AS correo_usuario,
+        EXISTS (
+          SELECT 1
+          FROM usuarios
+          WHERE correo = ${correoLimpio}
+        ) AS correo_usuario,
 
-          EXISTS (
-            SELECT 1
-            FROM pacientes
-            WHERE documento = ${documentoLimpio}
-          ) AS documento_existente
-      `;
+        EXISTS (
+          SELECT 1
+          FROM pacientes
+          WHERE documento = ${documentoLimpio}
+        ) AS documento_existente
+    `;
 
     if (existentes[0].correo_paciente || existentes[0].correo_usuario) {
       return res.status(409).json({
@@ -178,48 +163,48 @@ app.post('/api/auth/registro', async (req, res) => {
     const contrasenaCifrada = await bcrypt.hash(contrasena, 10);
 
     const resultado = await sql`
-        WITH nuevo_paciente AS (
-          INSERT INTO pacientes (
-            nombres,
-            apellidos,
-            documento,
-            correo,
-            telefono
-          )
-          VALUES (
-            ${nombresLimpios},
-            ${apellidosLimpios},
-            ${documentoLimpio},
-            ${correoLimpio},
-            ${telefonoLimpio}
-          )
-          RETURNING
-            id_paciente,
-            nombres,
-            apellidos,
-            correo
-        )
-        INSERT INTO usuarios (
-          nombre,
+      WITH nuevo_paciente AS (
+        INSERT INTO pacientes (
+          nombres,
+          apellidos,
+          documento,
           correo,
-          contrasena,
-          rol,
-          id_paciente
+          telefono
         )
-        SELECT
-          CONCAT_WS(' ', nombres, apellidos),
-          correo,
-          ${contrasenaCifrada},
-          'paciente',
-          id_paciente
-        FROM nuevo_paciente
+        VALUES (
+          ${nombresLimpios},
+          ${apellidosLimpios},
+          ${documentoLimpio},
+          ${correoLimpio},
+          ${telefonoLimpio}
+        )
         RETURNING
-          id_usuario,
-          nombre,
-          correo,
-          rol,
-          id_paciente
-      `;
+          id_paciente,
+          nombres,
+          apellidos,
+          correo
+      )
+      INSERT INTO usuarios (
+        nombre,
+        correo,
+        contrasena,
+        rol,
+        id_paciente
+      )
+      SELECT
+        CONCAT_WS(' ', nombres, apellidos),
+        correo,
+        ${contrasenaCifrada},
+        'paciente',
+        id_paciente
+      FROM nuevo_paciente
+      RETURNING
+        id_usuario,
+        nombre,
+        correo,
+        rol,
+        id_paciente
+    `;
 
     return res.status(201).json({
       mensaje: 'Cuenta de paciente creada exitosamente.',
@@ -244,25 +229,36 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { correo, contrasena } = req.body;
 
-    if (!correo || !contrasena) {
+    if (
+      typeof correo !== 'string' ||
+      !correo.trim() ||
+      typeof contrasena !== 'string' ||
+      !contrasena
+    ) {
       return res.status(400).json({
         mensaje: 'Debes ingresar el correo y la contraseña.'
       });
     }
 
+    if (!validarCorreo(correo)) {
+      return res.status(400).json({
+        mensaje: 'Ingresa un correo electrónico válido.'
+      });
+    }
+
     const resultado = await sql`
-        SELECT
-          id_usuario,
-          nombre,
-          correo,
-          contrasena,
-          rol,
-          id_paciente,
-          id_medico
-        FROM usuarios
-        WHERE correo = ${correo.trim().toLowerCase()}
-        LIMIT 1
-      `;
+      SELECT
+        id_usuario,
+        nombre,
+        correo,
+        contrasena,
+        rol,
+        id_paciente,
+        id_medico
+      FROM usuarios
+      WHERE correo = ${correo.trim().toLowerCase()}
+      LIMIT 1
+    `;
 
     if (resultado.length === 0) {
       return res.status(401).json({
@@ -411,9 +407,27 @@ app.post('/api/medicos', verificarToken, autorizarRoles('administrador'), async 
       });
     }
 
-    if (contrasena.length < 8) {
+    if (!validarNombre(nombres) || !validarNombre(apellidos)) {
+      return res.status(400).json({
+        mensaje: 'Los nombres y apellidos deben contener entre 2 y 60 letras y espacios.'
+      });
+    }
+
+    if (!validarCorreo(correo)) {
+      return res.status(400).json({
+        mensaje: 'Ingresa un correo electrónico válido.'
+      });
+    }
+
+    if (!validarContrasena(contrasena)) {
       return res.status(400).json({
         mensaje: 'La contraseña debe tener mínimo 8 caracteres.'
+      });
+    }
+
+    if (telefono && !validarTelefono(telefono)) {
+      return res.status(400).json({
+        mensaje: 'El teléfono debe contener exactamente 10 números.'
       });
     }
 
@@ -422,18 +436,18 @@ app.post('/api/medicos', verificarToken, autorizarRoles('administrador'), async 
     const apellidosLimpios = apellidos.trim();
     const especialidadId = Number(id_especialidad);
 
-    if (!Number.isInteger(especialidadId) || especialidadId <= 0) {
+    if (!validarId(especialidadId)) {
       return res.status(400).json({
         mensaje: 'Selecciona una especialidad válida.'
       });
     }
 
     const correoExistente = await sql`
-        SELECT correo
-        FROM usuarios
-        WHERE LOWER(correo) = ${correoNormalizado}
-        LIMIT 1
-      `;
+      SELECT correo
+      FROM usuarios
+      WHERE LOWER(correo) = ${correoNormalizado}
+      LIMIT 1
+    `;
 
     if (correoExistente.length > 0) {
       return res.status(409).json({
@@ -442,10 +456,10 @@ app.post('/api/medicos', verificarToken, autorizarRoles('administrador'), async 
     }
 
     const especialidad = await sql`
-        SELECT id_especialidad
-        FROM especialidades
-        WHERE id_especialidad = ${especialidadId}
-      `;
+      SELECT id_especialidad
+      FROM especialidades
+      WHERE id_especialidad = ${especialidadId}
+    `;
 
     if (especialidad.length === 0) {
       return res.status(400).json({
@@ -456,59 +470,59 @@ app.post('/api/medicos', verificarToken, autorizarRoles('administrador'), async 
     const contrasenaEncriptada = await bcrypt.hash(contrasena, 10);
 
     const resultado = await sql`
-        WITH nuevo_medico AS (
-          INSERT INTO medicos (
-            nombres,
-            apellidos,
-            correo,
-            telefono,
-            id_especialidad,
-            estado
-          )
-          VALUES (
-            ${nombresLimpios},
-            ${apellidosLimpios},
-            ${correoNormalizado},
-            ${telefono?.trim() || null},
-            ${especialidadId},
-            'activo'
-          )
-          RETURNING
-            id_medico,
-            nombres,
-            apellidos,
-            correo,
-            telefono,
-            id_especialidad,
-            estado
-        ),
-        nuevo_usuario AS (
-          INSERT INTO usuarios (
-            nombre,
-            correo,
-            contrasena,
-            rol,
-            id_medico,
-            fecha_creacion
-          )
-          SELECT
-            CONCAT(nombres, ' ', apellidos),
-            correo,
-            ${contrasenaEncriptada},
-            'medico',
-            id_medico,
-            NOW()
-          FROM nuevo_medico
-          RETURNING id_usuario, correo, rol, id_medico
+      WITH nuevo_medico AS (
+        INSERT INTO medicos (
+          nombres,
+          apellidos,
+          correo,
+          telefono,
+          id_especialidad,
+          estado
+        )
+        VALUES (
+          ${nombresLimpios},
+          ${apellidosLimpios},
+          ${correoNormalizado},
+          ${telefono ? telefono.trim() : null},
+          ${especialidadId},
+          'activo'
+        )
+        RETURNING
+          id_medico,
+          nombres,
+          apellidos,
+          correo,
+          telefono,
+          id_especialidad,
+          estado
+      ),
+      nuevo_usuario AS (
+        INSERT INTO usuarios (
+          nombre,
+          correo,
+          contrasena,
+          rol,
+          id_medico,
+          fecha_creacion
         )
         SELECT
-          nuevo_medico.*,
-          nuevo_usuario.id_usuario,
-          nuevo_usuario.rol
+          CONCAT(nombres, ' ', apellidos),
+          correo,
+          ${contrasenaEncriptada},
+          'medico',
+          id_medico,
+          NOW()
         FROM nuevo_medico
-        INNER JOIN nuevo_usuario
-          ON nuevo_medico.id_medico = nuevo_usuario.id_medico
-      `;
+        RETURNING id_usuario, correo, rol, id_medico
+      )
+      SELECT
+        nuevo_medico.*,
+        nuevo_usuario.id_usuario,
+        nuevo_usuario.rol
+      FROM nuevo_medico
+      INNER JOIN nuevo_usuario
+        ON nuevo_medico.id_medico = nuevo_usuario.id_medico
+    `;
 
     return res.status(201).json({
       mensaje: 'Médico registrado correctamente.',
@@ -549,28 +563,26 @@ app.post(
         });
       }
 
-      const nombreLimpio = nombre.trim();
-      const correoNormalizado = correo.trim().toLowerCase();
-
-      if (nombreLimpio.length < 3) {
+      if (!validarNombre(nombre)) {
         return res.status(400).json({
-          mensaje: 'El nombre debe tener al menos 3 caracteres.'
+          mensaje: 'El nombre debe contener entre 2 y 60 letras y espacios.'
         });
       }
 
-      const formatoCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
-
-      if (!formatoCorreo.test(correoNormalizado)) {
+      if (!validarCorreo(correo)) {
         return res.status(400).json({
           mensaje: 'Ingresa un correo electrónico válido.'
         });
       }
 
-      if (contrasena.length < 8) {
+      if (!validarContrasena(contrasena)) {
         return res.status(400).json({
           mensaje: 'La contraseña debe tener mínimo 8 caracteres.'
         });
       }
+
+      const nombreLimpio = nombre.trim();
+      const correoNormalizado = correo.trim().toLowerCase();
 
       const correoExistente = await sql`
         SELECT id_usuario
@@ -638,55 +650,42 @@ app.post(
     try {
       const { nombres, apellidos, documento, correo, telefono } = req.body;
 
-      // 1. Validar campos obligatorios
       if (!nombres || !apellidos || !documento || !correo || !telefono) {
         return res.status(400).json({
           mensaje: 'Todos los campos son obligatorios.'
         });
       }
 
-      // 2. Limpiar y normalizar información
+      if (!validarNombre(nombres) || !validarNombre(apellidos)) {
+        return res.status(400).json({
+          mensaje: 'Los nombres y apellidos deben contener entre 2 y 60 letras y espacios.'
+        });
+      }
+
+      if (!validarDocumento(documento)) {
+        return res.status(400).json({
+          mensaje: 'El documento debe contener exactamente 10 números.'
+        });
+      }
+
+      if (!validarCorreo(correo)) {
+        return res.status(400).json({
+          mensaje: 'Ingresa un correo electrónico válido.'
+        });
+      }
+
+      if (!validarTelefono(telefono)) {
+        return res.status(400).json({
+          mensaje: 'El teléfono debe contener exactamente 10 números.'
+        });
+      }
+
       const nombresLimpios = nombres.trim();
       const apellidosLimpios = apellidos.trim();
       const documentoLimpio = String(documento).trim();
       const correoLimpio = correo.trim().toLowerCase();
       const telefonoLimpio = telefono.trim();
 
-      // 3. Validar nombres y apellidos
-      const expresionNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$/;
-
-      if (!expresionNombre.test(nombresLimpios) || !expresionNombre.test(apellidosLimpios)) {
-        return res.status(400).json({
-          mensaje: 'Los nombres y apellidos solo deben contener letras y espacios.'
-        });
-      }
-
-      // 4. Validar documento
-      if (!/^\d{6,15}$/.test(documentoLimpio)) {
-        return res.status(400).json({
-          mensaje: 'El documento debe contener entre 6 y 15 números.'
-        });
-      }
-
-      // 5. Validar correo
-      const formatoCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
-
-      if (!formatoCorreo.test(correoLimpio)) {
-        return res.status(400).json({
-          mensaje: 'Ingresa un correo electrónico válido.'
-        });
-      }
-
-      // 6. Validar teléfono
-      const telefonoNumerico = telefonoLimpio.replace(/\s/g, '');
-
-      if (!/^\+?\d{7,15}$/.test(telefonoNumerico)) {
-        return res.status(400).json({
-          mensaje: 'Ingresa un teléfono válido de entre 7 y 15 números.'
-        });
-      }
-
-      // 7. Comprobar que el documento no esté registrado
       const documentoExistente = await sql`
         SELECT id_paciente
         FROM pacientes
@@ -700,7 +699,6 @@ app.post(
         });
       }
 
-      // 8. Comprobar que el correo no esté registrado
       const correoExistente = await sql`
         SELECT id_paciente
         FROM pacientes
@@ -714,8 +712,6 @@ app.post(
         });
       }
 
-      // 9. Registrar solamente al paciente
-      // No se crea ningún usuario ni contraseña.
       const resultado = await sql`
         INSERT INTO pacientes (
           nombres,
@@ -729,7 +725,7 @@ app.post(
           ${apellidosLimpios},
           ${documentoLimpio},
           ${correoLimpio},
-          ${telefonoNumerico}
+          ${telefonoLimpio}
         )
         RETURNING
           id_paciente,
@@ -812,24 +808,24 @@ app.get('/api/pacientes/perfil', verificarToken, autorizarRoles('paciente'), asy
   try {
     const idPaciente = req.usuario.id_paciente;
 
-    if (!idPaciente) {
+    if (!validarId(idPaciente)) {
       return res.status(403).json({
         mensaje: 'La cuenta no tiene un paciente asociado.'
       });
     }
 
     const resultado = await sql`
-        SELECT
-          id_paciente,
-          nombres,
-          apellidos,
-          documento,
-          correo,
-          telefono
-        FROM pacientes
-        WHERE id_paciente = ${idPaciente}
-        LIMIT 1
-      `;
+      SELECT
+        id_paciente,
+        nombres,
+        apellidos,
+        documento,
+        correo,
+        telefono
+      FROM pacientes
+      WHERE id_paciente = ${idPaciente}
+      LIMIT 1
+    `;
 
     if (resultado.length === 0) {
       return res.status(404).json({
@@ -855,7 +851,7 @@ app.patch('/api/pacientes/perfil', verificarToken, autorizarRoles('paciente'), a
     const idPaciente = req.usuario.id_paciente;
     const { nombres, apellidos, correo, telefono } = req.body;
 
-    if (!idPaciente) {
+    if (!validarId(idPaciente)) {
       return res.status(403).json({
         mensaje: 'La cuenta no tiene un paciente asociado.'
       });
@@ -867,39 +863,36 @@ app.patch('/api/pacientes/perfil', verificarToken, autorizarRoles('paciente'), a
       });
     }
 
-    const nombresLimpios = nombres.trim();
-    const apellidosLimpios = apellidos.trim();
-    const correoLimpio = correo.trim().toLowerCase();
-    const telefonoLimpio = telefono.trim().replace(/\s/g, '');
-
-    const expresionNombre = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$/;
-    const expresionCorreo = /^[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
-
-    if (!expresionNombre.test(nombresLimpios) || !expresionNombre.test(apellidosLimpios)) {
+    if (!validarNombre(nombres) || !validarNombre(apellidos)) {
       return res.status(400).json({
-        mensaje: 'Los nombres y apellidos solo deben contener letras y espacios.'
+        mensaje: 'Los nombres y apellidos deben contener entre 2 y 60 letras y espacios.'
       });
     }
 
-    if (!expresionCorreo.test(correoLimpio)) {
+    if (!validarCorreo(correo)) {
       return res.status(400).json({
         mensaje: 'Ingresa un correo electrónico válido.'
       });
     }
 
-    if (!/^\+?\d{7,15}$/.test(telefonoLimpio)) {
+    if (!validarTelefono(telefono)) {
       return res.status(400).json({
-        mensaje: 'Ingresa un teléfono válido de entre 7 y 15 números.'
+        mensaje: 'El teléfono debe contener exactamente 10 números.'
       });
     }
 
+    const nombresLimpios = nombres.trim();
+    const apellidosLimpios = apellidos.trim();
+    const correoLimpio = correo.trim().toLowerCase();
+    const telefonoLimpio = telefono.trim();
+
     const correoExistente = await sql`
-  SELECT id_paciente
-  FROM pacientes
-  WHERE LOWER(correo) = ${correoLimpio}
-    AND id_paciente <> ${idPaciente}
-  LIMIT 1
-`;
+      SELECT id_paciente
+      FROM pacientes
+      WHERE LOWER(correo) = ${correoLimpio}
+        AND id_paciente <> ${idPaciente}
+      LIMIT 1
+    `;
 
     if (correoExistente.length > 0) {
       return res.status(409).json({
@@ -908,11 +901,11 @@ app.patch('/api/pacientes/perfil', verificarToken, autorizarRoles('paciente'), a
     }
 
     const usuarioActual = await sql`
-  SELECT id_usuario
-  FROM usuarios
-  WHERE id_paciente = ${idPaciente}
-  LIMIT 1
-`;
+      SELECT id_usuario
+      FROM usuarios
+      WHERE id_paciente = ${idPaciente}
+      LIMIT 1
+    `;
 
     if (usuarioActual.length === 0) {
       return res.status(404).json({
@@ -921,12 +914,12 @@ app.patch('/api/pacientes/perfil', verificarToken, autorizarRoles('paciente'), a
     }
 
     const correoUsuarioExistente = await sql`
-  SELECT id_usuario
-  FROM usuarios
-  WHERE LOWER(correo) = ${correoLimpio}
-    AND id_usuario <> ${usuarioActual[0].id_usuario}
-  LIMIT 1
-`;
+      SELECT id_usuario
+      FROM usuarios
+      WHERE LOWER(correo) = ${correoLimpio}
+        AND id_usuario <> ${usuarioActual[0].id_usuario}
+      LIMIT 1
+    `;
 
     if (correoUsuarioExistente.length > 0) {
       return res.status(409).json({
@@ -935,37 +928,37 @@ app.patch('/api/pacientes/perfil', verificarToken, autorizarRoles('paciente'), a
     }
 
     const resultado = await sql`
-  WITH paciente_actualizado AS (
-    UPDATE pacientes
-    SET
-      nombres = ${nombresLimpios},
-      apellidos = ${apellidosLimpios},
-      correo = ${correoLimpio},
-      telefono = ${telefonoLimpio}
-    WHERE id_paciente = ${idPaciente}
-    RETURNING
-      id_paciente,
-      nombres,
-      apellidos,
-      documento,
-      correo,
-      telefono
-  ),
-  usuario_actualizado AS (
-    UPDATE usuarios
-    SET correo = ${correoLimpio}
-    WHERE id_usuario = ${usuarioActual[0].id_usuario}
-    RETURNING id_usuario
-  )
-  SELECT
-    id_paciente,
-    nombres,
-    apellidos,
-    documento,
-    correo,
-    telefono
-  FROM paciente_actualizado
-`;
+      WITH paciente_actualizado AS (
+        UPDATE pacientes
+        SET
+          nombres = ${nombresLimpios},
+          apellidos = ${apellidosLimpios},
+          correo = ${correoLimpio},
+          telefono = ${telefonoLimpio}
+        WHERE id_paciente = ${idPaciente}
+        RETURNING
+          id_paciente,
+          nombres,
+          apellidos,
+          documento,
+          correo,
+          telefono
+      ),
+      usuario_actualizado AS (
+        UPDATE usuarios
+        SET correo = ${correoLimpio}
+        WHERE id_usuario = ${usuarioActual[0].id_usuario}
+        RETURNING id_usuario
+      )
+      SELECT
+        id_paciente,
+        nombres,
+        apellidos,
+        documento,
+        correo,
+        telefono
+      FROM paciente_actualizado
+    `;
 
     if (resultado.length === 0) {
       return res.status(404).json({
@@ -1032,38 +1025,38 @@ app.get(
       let citas;
 
       if (rol === 'paciente') {
-        if (!id_paciente) {
+        if (!validarId(id_paciente)) {
           return res.status(403).json({
             mensaje: 'Tu cuenta no tiene un paciente asociado.'
           });
         }
 
         citas = await sql`
-            SELECT
-              c.id_cita,
-              c.id_paciente,
-              c.id_medico,
-              c.fecha,
-              c.hora,
-              c.motivo,
-              c.estado,
-              p.nombres AS nombres_paciente,
-              p.apellidos AS apellidos_paciente,
-              m.nombres AS nombres_medico,
-              m.apellidos AS apellidos_medico,
-              e.nombre AS especialidad
-            FROM citas c
-            INNER JOIN pacientes p
-              ON c.id_paciente = p.id_paciente
-            INNER JOIN medicos m
-              ON c.id_medico = m.id_medico
-            INNER JOIN especialidades e
-              ON m.id_especialidad = e.id_especialidad
-            WHERE c.id_paciente = ${id_paciente}
-            ORDER BY c.fecha, c.hora
-          `;
+          SELECT
+            c.id_cita,
+            c.id_paciente,
+            c.id_medico,
+            c.fecha,
+            c.hora,
+            c.motivo,
+            c.estado,
+            p.nombres AS nombres_paciente,
+            p.apellidos AS apellidos_paciente,
+            m.nombres AS nombres_medico,
+            m.apellidos AS apellidos_medico,
+            e.nombre AS especialidad
+          FROM citas c
+          INNER JOIN pacientes p
+            ON c.id_paciente = p.id_paciente
+          INNER JOIN medicos m
+            ON c.id_medico = m.id_medico
+          INNER JOIN especialidades e
+            ON m.id_especialidad = e.id_especialidad
+          WHERE c.id_paciente = ${id_paciente}
+          ORDER BY c.fecha, c.hora
+        `;
       } else if (rol === 'medico') {
-        if (!id_medico) {
+        if (!validarId(id_medico)) {
           return res.status(403).json({
             mensaje: 'Tu cuenta no tiene un médico asociado.'
           });
@@ -1072,6 +1065,18 @@ app.get(
         const { fecha_inicio, fecha_fin } = req.query;
 
         if (fecha_inicio && fecha_fin) {
+          if (!validarFecha(fecha_inicio) || !validarFecha(fecha_fin)) {
+            return res.status(400).json({
+              mensaje: 'El rango de fechas proporcionado no es válido.'
+            });
+          }
+
+          if (fecha_inicio > fecha_fin) {
+            return res.status(400).json({
+              mensaje: 'La fecha inicial no puede ser posterior a la fecha final.'
+            });
+          }
+
           citas = await sql`
             SELECT
               c.id_cita,
@@ -1119,35 +1124,36 @@ app.get(
               ON c.id_medico = m.id_medico
             INNER JOIN especialidades e
               ON m.id_especialidad = e.id_especialidad
-            WHERE c.id_medico = ${id_medico}  
+            WHERE c.id_medico = ${id_medico}
             ORDER BY c.fecha, c.hora
           `;
         }
       } else {
         citas = await sql`
-            SELECT
-              c.id_cita,
-              c.id_paciente,
-              c.id_medico,
-              c.fecha,
-              c.hora,
-              c.motivo,
-              c.estado,
-              p.nombres AS nombres_paciente,
-              p.apellidos AS apellidos_paciente,
-              m.nombres AS nombres_medico,
-              m.apellidos AS apellidos_medico,
-              e.nombre AS especialidad
-            FROM citas c
-            INNER JOIN pacientes p
-              ON c.id_paciente = p.id_paciente
-            INNER JOIN medicos m
-              ON c.id_medico = m.id_medico
-            INNER JOIN especialidades e
-              ON m.id_especialidad = e.id_especialidad
-            ORDER BY c.fecha, c.hora
-          `;
+          SELECT
+            c.id_cita,
+            c.id_paciente,
+            c.id_medico,
+            c.fecha,
+            c.hora,
+            c.motivo,
+            c.estado,
+            p.nombres AS nombres_paciente,
+            p.apellidos AS apellidos_paciente,
+            m.nombres AS nombres_medico,
+            m.apellidos AS apellidos_medico,
+            e.nombre AS especialidad
+          FROM citas c
+          INNER JOIN pacientes p
+            ON c.id_paciente = p.id_paciente
+          INNER JOIN medicos m
+            ON c.id_medico = m.id_medico
+          INNER JOIN especialidades e
+            ON m.id_especialidad = e.id_especialidad
+          ORDER BY c.fecha, c.hora
+        `;
       }
+
       res.json(citas);
     } catch (error) {
       console.error('Error al consultar citas:', error.message);
@@ -1165,10 +1171,10 @@ app.patch(
   autorizarRoles('administrador'),
   async (req, res) => {
     try {
-      const idMedico = Number(req.params.id);
+      const idMedico = req.params.id;
       const { estado } = req.body;
 
-      if (!Number.isInteger(idMedico) || idMedico <= 0) {
+      if (!validarId(idMedico)) {
         return res.status(400).json({
           mensaje: 'El identificador del médico no es válido.'
         });
@@ -1183,7 +1189,7 @@ app.patch(
       const medico = await sql`
         SELECT id_medico, estado
         FROM medicos
-        WHERE id_medico = ${idMedico}
+        WHERE id_medico = ${Number(idMedico)}
       `;
 
       if (medico.length === 0) {
@@ -1196,7 +1202,7 @@ app.patch(
         const resultado = await sql`
           SELECT COUNT(*)::int AS cantidad
           FROM citas
-          WHERE id_medico = ${idMedico}
+          WHERE id_medico = ${Number(idMedico)}
           AND estado IN ('Pendiente', 'Confirmada')
         `;
 
@@ -1213,7 +1219,7 @@ app.patch(
       const actualizado = await sql`
         UPDATE medicos
         SET estado = ${estado}
-        WHERE id_medico = ${idMedico}
+        WHERE id_medico = ${Number(idMedico)}
         RETURNING id_medico, nombres, apellidos, estado
       `;
 
@@ -1247,17 +1253,15 @@ app.post(
         });
       }
 
-      const medicoId = Number(id_medico);
-
-      if (!Number.isInteger(medicoId) || medicoId <= 0) {
+      if (!validarId(id_medico)) {
         return res.status(400).json({
           mensaje: 'El médico seleccionado no es válido.'
         });
       }
 
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      if (!validarFecha(fecha)) {
         return res.status(400).json({
-          mensaje: 'La fecha no tiene un formato válido.'
+          mensaje: 'La fecha ingresada no es válida.'
         });
       }
 
@@ -1284,7 +1288,8 @@ app.post(
           mensaje: 'No puedes agendar una cita en una fecha pasada.'
         });
       }
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) {
+
+      if (!validarHora(hora)) {
         return res.status(400).json({
           mensaje: 'La hora ingresada no es válida.'
         });
@@ -1296,34 +1301,33 @@ app.post(
         });
       }
 
+      const medicoId = Number(id_medico);
       let id_paciente;
 
-      // Si registra un paciente, se utiliza el paciente vinculado a su cuenta.
       if (req.usuario.rol === 'paciente') {
         id_paciente = req.usuario.id_paciente;
 
-        if (!id_paciente) {
+        if (!validarId(id_paciente)) {
           return res.status(403).json({
             mensaje: 'Tu cuenta no está vinculada a un paciente.'
           });
         }
       }
 
-      // Si registra un recepcionista, se utiliza el paciente seleccionado.
       if (req.usuario.rol === 'recepcionista') {
         id_paciente = Number(req.body.id_paciente);
 
-        if (!Number.isInteger(id_paciente) || id_paciente <= 0) {
+        if (!validarId(id_paciente)) {
           return res.status(400).json({
             mensaje: 'Debes seleccionar un paciente válido.'
           });
         }
 
         const pacienteExiste = await sql`
-        SELECT id_paciente
-        FROM pacientes
-        WHERE id_paciente = ${id_paciente}
-    `;
+          SELECT id_paciente
+          FROM pacientes
+          WHERE id_paciente = ${id_paciente}
+        `;
 
         if (pacienteExiste.length === 0) {
           return res.status(404).json({
@@ -1333,10 +1337,10 @@ app.post(
       }
 
       const medico = await sql`
-    SELECT id_medico, estado
-    FROM medicos
-    WHERE id_medico = ${medicoId}
-`;
+        SELECT id_medico, estado
+        FROM medicos
+        WHERE id_medico = ${medicoId}
+      `;
 
       if (medico.length === 0) {
         return res.status(404).json({
@@ -1359,19 +1363,18 @@ app.post(
       const minutosSolicitados = horas * 60 + minutos;
 
       const horarios = await sql`
-    SELECT
-        hora_inicio,
-        hora_fin,
-        duracion_cita
-    FROM horarios_medicos
-    WHERE id_medico = ${medicoId}
-      AND dia_semana = ${diaSemana}
-      AND activo = TRUE
-`;
+        SELECT
+          hora_inicio,
+          hora_fin,
+          duracion_cita
+        FROM horarios_medicos
+        WHERE id_medico = ${medicoId}
+          AND dia_semana = ${diaSemana}
+          AND activo = TRUE
+      `;
 
       const horarioValido = horarios.find((h) => {
         const [horaInicio, minutoInicio] = String(h.hora_inicio).slice(0, 5).split(':').map(Number);
-
         const [horaFin, minutoFin] = String(h.hora_fin).slice(0, 5).split(':').map(Number);
 
         const inicio = horaInicio * 60 + minutoInicio;
@@ -1379,6 +1382,7 @@ app.post(
         const duracion = Number(h.duracion_cita);
 
         return (
+          validarDuracion(duracion) &&
           minutosSolicitados >= inicio &&
           minutosSolicitados + duracion <= fin &&
           (minutosSolicitados - inicio) % duracion === 0
@@ -1395,19 +1399,19 @@ app.post(
       const duracion = Number(horarioValido.duracion_cita);
 
       const conflicto = await sql`
-    SELECT id_cita
-    FROM citas
-    WHERE id_medico = ${medicoId}
-      AND fecha = ${fecha}
-      AND estado IN ('Pendiente', 'Confirmada')
-      AND hora < (
-          ${hora}::time + (${duracion} * INTERVAL '1 minute')
-      )
-      AND (
-          hora + (${duracion} * INTERVAL '1 minute')
-      ) > ${hora}::time
-    LIMIT 1
-`;
+        SELECT id_cita
+        FROM citas
+        WHERE id_medico = ${medicoId}
+          AND fecha = ${fecha}
+          AND estado IN ('Pendiente', 'Confirmada')
+          AND hora < (
+            ${hora}::time + (${duracion} * INTERVAL '1 minute')
+          )
+          AND (
+            hora + (${duracion} * INTERVAL '1 minute')
+          ) > ${hora}::time
+        LIMIT 1
+      `;
 
       if (conflicto.length > 0) {
         return res.status(409).json({
@@ -1416,19 +1420,19 @@ app.post(
       }
 
       const conflictoPaciente = await sql`
-    SELECT id_cita
-    FROM citas
-    WHERE id_paciente = ${id_paciente}
-      AND fecha = ${fecha}
-      AND estado IN ('Pendiente', 'Confirmada')
-      AND hora < (
-          ${hora}::time + (${duracion} * INTERVAL '1 minute')
-      )
-      AND (
-          hora + (${duracion} * INTERVAL '1 minute')
-      ) > ${hora}::time
-    LIMIT 1
-`;
+        SELECT id_cita
+        FROM citas
+        WHERE id_paciente = ${id_paciente}
+          AND fecha = ${fecha}
+          AND estado IN ('Pendiente', 'Confirmada')
+          AND hora < (
+            ${hora}::time + (${duracion} * INTERVAL '1 minute')
+          )
+          AND (
+            hora + (${duracion} * INTERVAL '1 minute')
+          ) > ${hora}::time
+        LIMIT 1
+      `;
 
       if (conflictoPaciente.length > 0) {
         return res.status(409).json({
@@ -1436,47 +1440,43 @@ app.post(
         });
       }
 
-      const resultado = await sql`
-    INSERT INTO citas (
-        fecha,
-        hora,
-        motivo,
-        estado,
-        id_paciente,
-        id_medico,
-        duracion_minutos,
-        periodo_cita
-    )
-        VALUES (
-        ${fecha},
-        ${hora},
-        ${motivo.trim()},
-        'Pendiente',
-        ${id_paciente},
-        ${medicoId},
-        ${duracion},
-        tsrange(
-            ${`${fecha} ${hora}`}::timestamp,
-            (${`${fecha} ${hora}`}::timestamp + (${duracion} * INTERVAL '1 minute')),
-            '[)'
-        )
-    )
-    RETURNING
-        id_cita,
-        fecha,
-        hora,
-        motivo,
-        estado,
-        id_paciente,
-        id_medico,
-        duracion_minutos,
-        periodo_cita
+      
+const resultado = await sql`
+  INSERT INTO citas (
+    fecha,
+    hora,
+    motivo,
+    estado,
+    id_paciente,
+    id_medico,
+    duracion_minutos
+  )
+  VALUES (
+    ${fecha},
+    ${hora},
+    ${motivo.trim()},
+    'Pendiente',
+    ${id_paciente},
+    ${medicoId},
+    ${duracion}
+  )
+  RETURNING
+    id_cita,
+    fecha,
+    hora,
+    motivo,
+    estado,
+    id_paciente,
+    id_medico,
+    duracion_minutos,
+    periodo_cita
 `;
 
-      return res.status(201).json({
-        mensaje: 'Cita agendada correctamente.',
-        cita: resultado[0]
-      });
+return res.status(201).json({
+  mensaje: 'Cita agendada correctamente.',
+  cita: resultado[0]
+});
+
     } catch (error) {
       console.error('Error al agendar cita:', error);
 
@@ -1500,19 +1500,19 @@ app.patch(
   autorizarRoles('paciente', 'recepcionista'),
   async (req, res) => {
     try {
-      const idCita = Number(req.params.id);
+      const idCita = req.params.id;
       const { id_medico, fecha, hora, id_paciente } = req.body;
 
       const idPaciente =
         req.usuario.rol === 'recepcionista' ? Number(id_paciente) : req.usuario.id_paciente;
 
-      if (!Number.isInteger(idCita) || idCita <= 0) {
+      if (!validarId(idCita)) {
         return res.status(400).json({
           mensaje: 'La cita seleccionada no es válida.'
         });
       }
 
-      if (!Number.isInteger(idPaciente) || idPaciente <= 0) {
+      if (!validarId(idPaciente)) {
         return res.status(400).json({
           mensaje: 'Debes seleccionar un paciente válido para reprogramar la cita.'
         });
@@ -1524,21 +1524,33 @@ app.patch(
         });
       }
 
-      const medicoId = Number(id_medico);
-
-      if (!Number.isInteger(medicoId) || medicoId <= 0) {
+      if (!validarId(id_medico)) {
         return res.status(400).json({
           mensaje: 'El médico seleccionado no es válido.'
         });
       }
 
-      // Verificar que la cita pertenezca al paciente
+      if (!validarFecha(fecha)) {
+        return res.status(400).json({
+          mensaje: 'La fecha no tiene un formato válido.'
+        });
+      }
+
+      if (!validarHora(hora)) {
+        return res.status(400).json({
+          mensaje: 'La hora ingresada no es válida.'
+        });
+      }
+
+      const idCitaNumerico = Number(idCita);
+      const medicoId = Number(id_medico);
+
       const citaActual = await sql`
-                SELECT id_cita, id_paciente, estado, motivo
-                FROM citas
-                WHERE id_cita = ${idCita}
-                  AND id_paciente = ${idPaciente}
-            `;
+        SELECT id_cita, id_paciente, estado, motivo
+        FROM citas
+        WHERE id_cita = ${idCitaNumerico}
+          AND id_paciente = ${idPaciente}
+      `;
 
       if (citaActual.length === 0) {
         return res.status(404).json({
@@ -1549,13 +1561,6 @@ app.patch(
       if (!['Pendiente', 'Confirmada'].includes(citaActual[0].estado)) {
         return res.status(409).json({
           mensaje: 'Solo puedes reprogramar citas pendientes o confirmadas.'
-        });
-      }
-
-      // Validar fecha
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-        return res.status(400).json({
-          mensaje: 'La fecha no tiene un formato válido.'
         });
       }
 
@@ -1583,18 +1588,11 @@ app.patch(
         });
       }
 
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) {
-        return res.status(400).json({
-          mensaje: 'La hora ingresada no es válida.'
-        });
-      }
-
-      // Verificar que el médico exista y esté activo
       const medico = await sql`
-                SELECT id_medico, estado
-                FROM medicos
-                WHERE id_medico = ${medicoId}
-            `;
+        SELECT id_medico, estado
+        FROM medicos
+        WHERE id_medico = ${medicoId}
+      `;
 
       if (medico.length === 0) {
         return res.status(404).json({
@@ -1608,7 +1606,6 @@ app.patch(
         });
       }
 
-      // Determinar el día de la semana
       const diaSemana = (() => {
         const dia = new Date(`${fecha}T12:00:00-05:00`).getDay();
         return dia === 0 ? 7 : dia;
@@ -1617,18 +1614,16 @@ app.patch(
       const [horas, minutos] = hora.split(':').map(Number);
       const minutosSolicitados = horas * 60 + minutos;
 
-      // Consultar horarios del médico
       const horarios = await sql`
-                SELECT hora_inicio, hora_fin, duracion_cita
-                FROM horarios_medicos
-                WHERE id_medico = ${medicoId}
-                  AND dia_semana = ${diaSemana}
-                  AND activo = TRUE
-            `;
+        SELECT hora_inicio, hora_fin, duracion_cita
+        FROM horarios_medicos
+        WHERE id_medico = ${medicoId}
+          AND dia_semana = ${diaSemana}
+          AND activo = TRUE
+      `;
 
       const horarioValido = horarios.find((h) => {
         const [horaInicio, minutoInicio] = String(h.hora_inicio).slice(0, 5).split(':').map(Number);
-
         const [horaFin, minutoFin] = String(h.hora_fin).slice(0, 5).split(':').map(Number);
 
         const inicio = horaInicio * 60 + minutoInicio;
@@ -1636,6 +1631,7 @@ app.patch(
         const duracion = Number(h.duracion_cita);
 
         return (
+          validarDuracion(duracion) &&
           minutosSolicitados >= inicio &&
           minutosSolicitados + duracion <= fin &&
           (minutosSolicitados - inicio) % duracion === 0
@@ -1650,22 +1646,21 @@ app.patch(
 
       const duracion = Number(horarioValido.duracion_cita);
 
-      // Verificar que el médico no tenga otra cita en ese horario
       const conflictoMedico = await sql`
-                SELECT id_cita
-                FROM citas
-                WHERE id_medico = ${medicoId}
-                  AND fecha = ${fecha}
-                  AND id_cita <> ${idCita}
-                  AND estado IN ('Pendiente', 'Confirmada')
-                  AND hora < (
-                      ${hora}::time + (${duracion} * INTERVAL '1 minute')
-                  )
-                  AND (
-                      hora + (${duracion} * INTERVAL '1 minute')
-                  ) > ${hora}::time
-                LIMIT 1
-            `;
+        SELECT id_cita
+        FROM citas
+        WHERE id_medico = ${medicoId}
+          AND fecha = ${fecha}
+          AND id_cita <> ${idCitaNumerico}
+          AND estado IN ('Pendiente', 'Confirmada')
+          AND hora < (
+            ${hora}::time + (${duracion} * INTERVAL '1 minute')
+          )
+          AND (
+            hora + (${duracion} * INTERVAL '1 minute')
+          ) > ${hora}::time
+        LIMIT 1
+      `;
 
       if (conflictoMedico.length > 0) {
         return res.status(409).json({
@@ -1673,22 +1668,21 @@ app.patch(
         });
       }
 
-      // Verificar que el paciente no tenga otra cita en ese horario
       const conflictoPaciente = await sql`
-                SELECT id_cita
-                FROM citas
-                WHERE id_paciente = ${idPaciente}
-                  AND fecha = ${fecha}
-                  AND id_cita <> ${idCita}
-                  AND estado IN ('Pendiente', 'Confirmada')
-                  AND hora < (
-                      ${hora}::time + (${duracion} * INTERVAL '1 minute')
-                  )
-                  AND (
-                      hora + (${duracion} * INTERVAL '1 minute')
-                  ) > ${hora}::time
-                LIMIT 1
-            `;
+        SELECT id_cita
+        FROM citas
+        WHERE id_paciente = ${idPaciente}
+          AND fecha = ${fecha}
+          AND id_cita <> ${idCitaNumerico}
+          AND estado IN ('Pendiente', 'Confirmada')
+          AND hora < (
+            ${hora}::time + (${duracion} * INTERVAL '1 minute')
+          )
+          AND (
+            hora + (${duracion} * INTERVAL '1 minute')
+          ) > ${hora}::time
+        LIMIT 1
+      `;
 
       if (conflictoPaciente.length > 0) {
         return res.status(409).json({
@@ -1696,27 +1690,26 @@ app.patch(
         });
       }
 
-      // Actualizar la cita existente
       const resultado = await sql`
-                UPDATE citas
-                SET
-    id_medico = ${medicoId},
-    fecha = ${fecha},
-    hora = ${hora},
-    motivo = ${citaActual[0].motivo},
-    duracion_minutos = ${duracion}
-                WHERE id_cita = ${idCita}
-                  AND id_paciente = ${idPaciente}
-                RETURNING
-                    id_cita,
-                    fecha,
-                    hora,
-                    motivo,
-                    estado,
-                    id_paciente,
-                    id_medico,
-                    duracion_minutos
-            `;
+        UPDATE citas
+        SET
+          id_medico = ${medicoId},
+          fecha = ${fecha},
+          hora = ${hora},
+          motivo = ${citaActual[0].motivo},
+          duracion_minutos = ${duracion}
+        WHERE id_cita = ${idCitaNumerico}
+          AND id_paciente = ${idPaciente}
+        RETURNING
+          id_cita,
+          fecha,
+          hora,
+          motivo,
+          estado,
+          id_paciente,
+          id_medico,
+          duracion_minutos
+      `;
 
       return res.status(200).json({
         mensaje: 'Cita reprogramada correctamente.',
@@ -1745,21 +1738,22 @@ app.get(
   autorizarRoles('paciente', 'recepcionista', 'administrador'),
   async (req, res) => {
     try {
-      const idMedico = Number(req.params.id);
+      const idMedico = req.params.id;
       const { fecha } = req.query;
 
-      if (!Number.isInteger(idMedico) || idMedico <= 0) {
+      if (!validarId(idMedico)) {
         return res.status(400).json({
           mensaje: 'El identificador del médico no es válido.'
         });
       }
 
-      if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      if (!validarFecha(fecha)) {
         return res.status(400).json({
           mensaje: 'Debes proporcionar una fecha válida.'
         });
       }
 
+      const idMedicoNumerico = Number(idMedico);
       const fechaIngresada = new Date(`${fecha}T12:00:00-05:00`);
 
       if (
@@ -1774,7 +1768,7 @@ app.get(
       const medico = await sql`
         SELECT id_medico, estado
         FROM medicos
-        WHERE id_medico = ${idMedico}
+        WHERE id_medico = ${idMedicoNumerico}
       `;
 
       if (medico.length === 0) {
@@ -1795,7 +1789,7 @@ app.get(
       const horarios = await sql`
         SELECT hora_inicio, hora_fin, duracion_cita
         FROM horarios_medicos
-        WHERE id_medico = ${idMedico}
+        WHERE id_medico = ${idMedicoNumerico}
           AND dia_semana = ${diaSemana}
           AND activo = TRUE
         ORDER BY hora_inicio
@@ -1804,7 +1798,7 @@ app.get(
       if (horarios.length === 0) {
         return res.json({
           fecha,
-          id_medico: idMedico,
+          id_medico: idMedicoNumerico,
           disponibilidad: []
         });
       }
@@ -1812,7 +1806,7 @@ app.get(
       const citas = await sql`
         SELECT hora
         FROM citas
-        WHERE id_medico = ${idMedico}
+        WHERE id_medico = ${idMedicoNumerico}
           AND fecha = ${fecha}
           AND estado IN ('Pendiente', 'Confirmada')
       `;
@@ -1823,12 +1817,15 @@ app.get(
 
       for (const horario of horarios) {
         const [hi, mi] = String(horario.hora_inicio).slice(0, 5).split(':').map(Number);
-
         const [hf, mf] = String(horario.hora_fin).slice(0, 5).split(':').map(Number);
 
         const inicio = hi * 60 + mi;
         const fin = hf * 60 + mf;
         const duracion = Number(horario.duracion_cita);
+
+        if (!validarDuracion(duracion)) {
+          continue;
+        }
 
         for (let minuto = inicio; minuto + duracion <= fin; minuto += duracion) {
           const h = String(Math.floor(minuto / 60)).padStart(2, '0');
@@ -1843,7 +1840,7 @@ app.get(
 
       return res.json({
         fecha,
-        id_medico: idMedico,
+        id_medico: idMedicoNumerico,
         disponibilidad
       });
     } catch (error) {
@@ -1856,33 +1853,37 @@ app.get(
   }
 );
 
-// ACTUALIZAR EL ESTADO DE UNA CITA
 app.patch(
   '/api/citas/:id/estado',
   verificarToken,
   autorizarRoles('recepcionista', 'administrador'),
   async (req, res) => {
     try {
-      const idCita = Number(req.params.id);
+      const idCita = req.params.id;
       const { estado } = req.body;
 
-      if (!Number.isInteger(idCita) || idCita <= 0) {
+      if (!validarId(idCita)) {
         return res.status(400).json({
           mensaje: 'El identificador de la cita no es válido.'
         });
       }
 
-      if (!['Confirmada', 'Cancelada'].includes(estado)) {
+      if (
+        !validarEstado(estado) ||
+        !['Confirmada', 'Cancelada'].includes(estado)
+      ) {
         return res.status(400).json({
           mensaje: 'El estado solicitado no es válido.'
         });
       }
 
+      const idCitaNumerico = Number(idCita);
+
       const cita = await sql`
-                SELECT id_cita, estado
-                FROM citas
-                WHERE id_cita = ${idCita}
-            `;
+        SELECT id_cita, estado
+        FROM citas
+        WHERE id_cita = ${idCitaNumerico}
+      `;
 
       if (cita.length === 0) {
         return res.status(404).json({
@@ -1903,11 +1904,11 @@ app.patch(
       }
 
       const resultado = await sql`
-                UPDATE citas
-                SET estado = ${estado}
-                WHERE id_cita = ${idCita}
-                RETURNING id_cita, estado
-            `;
+        UPDATE citas
+        SET estado = ${estado}
+        WHERE id_cita = ${idCitaNumerico}
+        RETURNING id_cita, estado
+      `;
 
       return res.status(200).json({
         mensaje:
@@ -1926,17 +1927,16 @@ app.patch(
   }
 );
 
-// REGISTRAR RESULTADO DE LA CONSULTA
 app.patch(
   '/api/citas/:id/resultado',
   verificarToken,
   autorizarRoles('medico'),
   async (req, res) => {
     try {
-      const idCita = Number(req.params.id);
+      const idCita = req.params.id;
       const { estado } = req.body;
 
-      if (!Number.isInteger(idCita) || idCita <= 0) {
+      if (!validarId(idCita)) {
         return res.status(400).json({
           mensaje: 'El identificador de la cita no es válido.'
         });
@@ -1948,11 +1948,13 @@ app.patch(
         });
       }
 
+      const idCitaNumerico = Number(idCita);
+
       const cita = await sql`
-                SELECT id_cita, id_medico, estado
-                FROM citas
-                WHERE id_cita = ${idCita}
-            `;
+        SELECT id_cita, id_medico, estado
+        FROM citas
+        WHERE id_cita = ${idCitaNumerico}
+      `;
 
       if (cita.length === 0) {
         return res.status(404).json({
@@ -1973,11 +1975,11 @@ app.patch(
       }
 
       const resultado = await sql`
-                UPDATE citas
-                SET estado = ${estado}
-                WHERE id_cita = ${idCita}
-                RETURNING id_cita, estado
-            `;
+        UPDATE citas
+        SET estado = ${estado}
+        WHERE id_cita = ${idCitaNumerico}
+        RETURNING id_cita, estado
+      `;
 
       return res.status(200).json({
         mensaje:
@@ -1996,30 +1998,29 @@ app.patch(
   }
 );
 
-// CONSULTAR LOS HORARIOS DEL MÉDICO QUE INICIÓ SESIÓN
 app.get('/api/medico/mi-agenda', verificarToken, autorizarRoles('medico'), async (req, res) => {
   try {
-    const idMedico = Number(req.usuario.id_medico);
+    const idMedico = req.usuario.id_medico;
 
-    if (!Number.isInteger(idMedico) || idMedico <= 0) {
+    if (!validarId(idMedico)) {
       return res.status(400).json({
         mensaje: 'No se encontró un médico asociado a esta cuenta.'
       });
     }
 
     const horarios = await sql`
-        SELECT
-          id_horario,
-          id_medico,
-          dia_semana,
-          hora_inicio,
-          hora_fin,
-          duracion_cita,
-          activo
-        FROM horarios_medicos
-        WHERE id_medico = ${idMedico}
-        ORDER BY dia_semana, hora_inicio
-      `;
+      SELECT
+        id_horario,
+        id_medico,
+        dia_semana,
+        hora_inicio,
+        hora_fin,
+        duracion_cita,
+        activo
+      FROM horarios_medicos
+      WHERE id_medico = ${Number(idMedico)}
+      ORDER BY dia_semana, hora_inicio
+    `;
 
     return res.json(horarios);
   } catch (error) {
@@ -2037,9 +2038,9 @@ app.get(
   autorizarRoles('administrador'),
   async (req, res) => {
     try {
-      const idMedico = Number(req.params.id);
+      const idMedico = req.params.id;
 
-      if (!Number.isInteger(idMedico) || idMedico <= 0) {
+      if (!validarId(idMedico)) {
         return res.status(400).json({
           mensaje: 'El identificador del médico no es válido.'
         });
@@ -2055,7 +2056,7 @@ app.get(
           duracion_cita,
           activo
         FROM horarios_medicos
-        WHERE id_medico = ${idMedico}
+        WHERE id_medico = ${Number(idMedico)}
         ORDER BY dia_semana, hora_inicio
       `;
 
@@ -2076,11 +2077,10 @@ app.post(
   autorizarRoles('administrador'),
   async (req, res) => {
     try {
-      const idMedico = Number(req.params.id);
-
+      const idMedico = req.params.id;
       const { dia_semana, hora_inicio, hora_fin, duracion_cita } = req.body;
 
-      if (!Number.isInteger(idMedico) || idMedico <= 0) {
+      if (!validarId(idMedico)) {
         return res.status(400).json({
           mensaje: 'El identificador del médico no es válido.'
         });
@@ -2089,20 +2089,13 @@ app.post(
       const dia = Number(dia_semana);
       const duracion = Number(duracion_cita);
 
-      if (!Number.isInteger(dia) || dia < 1 || dia > 7) {
+      if (!validarId(dia) || dia < 1 || dia > 7) {
         return res.status(400).json({
           mensaje: 'El día de la semana no es válido.'
         });
       }
 
-      const formatoHora = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-      if (
-        typeof hora_inicio !== 'string' ||
-        typeof hora_fin !== 'string' ||
-        !formatoHora.test(hora_inicio) ||
-        !formatoHora.test(hora_fin)
-      ) {
+      if (!validarHora(hora_inicio) || !validarHora(hora_fin)) {
         return res.status(400).json({
           mensaje: 'Debes ingresar horas válidas en formato HH:MM.'
         });
@@ -2114,7 +2107,7 @@ app.post(
         });
       }
 
-      if (!Number.isInteger(duracion) || duracion <= 0) {
+      if (!validarDuracion(duracion)) {
         return res.status(400).json({
           mensaje: 'La duración de la cita debe ser un número positivo.'
         });
@@ -2123,7 +2116,7 @@ app.post(
       const medico = await sql`
         SELECT id_medico
         FROM medicos
-        WHERE id_medico = ${idMedico}
+        WHERE id_medico = ${Number(idMedico)}
           AND estado = 'activo'
       `;
 
@@ -2143,7 +2136,7 @@ app.post(
           activo
         )
         VALUES (
-          ${idMedico},
+          ${Number(idMedico)},
           ${dia},
           ${hora_inicio},
           ${hora_fin},
@@ -2179,18 +2172,20 @@ app.patch(
   autorizarRoles('administrador'),
   async (req, res) => {
     try {
-      const idHorario = Number(req.params.id);
+      const idHorario = req.params.id;
 
-      if (!Number.isInteger(idHorario) || idHorario <= 0) {
+      if (!validarId(idHorario)) {
         return res.status(400).json({
           mensaje: 'El identificador del horario no es válido.'
         });
       }
 
+      const idHorarioNumerico = Number(idHorario);
+
       const existente = await sql`
         SELECT *
         FROM horarios_medicos
-        WHERE id_horario = ${idHorario}
+        WHERE id_horario = ${idHorarioNumerico}
       `;
 
       if (existente.length === 0) {
@@ -2202,7 +2197,9 @@ app.patch(
       const actual = existente[0];
 
       const dia =
-        req.body.dia_semana !== undefined ? Number(req.body.dia_semana) : Number(actual.dia_semana);
+        req.body.dia_semana !== undefined
+          ? Number(req.body.dia_semana)
+          : Number(actual.dia_semana);
 
       const inicio =
         req.body.hora_inicio !== undefined
@@ -2210,7 +2207,9 @@ app.patch(
           : String(actual.hora_inicio).slice(0, 5);
 
       const fin =
-        req.body.hora_fin !== undefined ? req.body.hora_fin : String(actual.hora_fin).slice(0, 5);
+        req.body.hora_fin !== undefined
+          ? req.body.hora_fin
+          : String(actual.hora_fin).slice(0, 5);
 
       const duracion =
         req.body.duracion_cita !== undefined
@@ -2219,20 +2218,13 @@ app.patch(
 
       const activo = req.body.activo !== undefined ? req.body.activo : actual.activo;
 
-      if (!Number.isInteger(dia) || dia < 1 || dia > 7) {
+      if (!validarId(dia) || dia < 1 || dia > 7) {
         return res.status(400).json({
           mensaje: 'El día de la semana no es válido.'
         });
       }
 
-      const formatoHora = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-      if (
-        typeof inicio !== 'string' ||
-        typeof fin !== 'string' ||
-        !formatoHora.test(inicio) ||
-        !formatoHora.test(fin)
-      ) {
+      if (!validarHora(inicio) || !validarHora(fin)) {
         return res.status(400).json({
           mensaje: 'Las horas ingresadas no son válidas.'
         });
@@ -2244,7 +2236,7 @@ app.patch(
         });
       }
 
-      if (!Number.isInteger(duracion) || duracion <= 0) {
+      if (!validarDuracion(duracion)) {
         return res.status(400).json({
           mensaje: 'La duración de la cita debe ser positiva.'
         });
@@ -2264,7 +2256,7 @@ app.patch(
           hora_fin = ${fin},
           duracion_cita = ${duracion},
           activo = ${activo}
-        WHERE id_horario = ${idHorario}
+        WHERE id_horario = ${idHorarioNumerico}
         RETURNING *
       `;
 
@@ -2288,34 +2280,35 @@ app.patch(
   }
 );
 
-// CANCELAR UNA CITA PROPIA COMO PACIENTE
 app.patch(
   '/api/citas/:id/cancelar',
   verificarToken,
   autorizarRoles('paciente'),
   async (req, res) => {
     try {
-      const idCita = Number(req.params.id);
-      const idPaciente = Number(req.usuario.id_paciente);
+      const idCita = req.params.id;
+      const idPaciente = req.usuario.id_paciente;
 
-      if (!Number.isInteger(idCita) || idCita <= 0) {
+      if (!validarId(idCita)) {
         return res.status(400).json({
           mensaje: 'El identificador de la cita no es válido.'
         });
       }
 
-      if (!Number.isInteger(idPaciente) || idPaciente <= 0) {
+      if (!validarId(idPaciente)) {
         return res.status(403).json({
           mensaje: 'Tu cuenta no tiene un paciente asociado.'
         });
       }
 
-      // Buscar únicamente una cita perteneciente al paciente.
+      const idCitaNumerico = Number(idCita);
+      const idPacienteNumerico = Number(idPaciente);
+
       const cita = await sql`
         SELECT id_cita, estado
         FROM citas
-        WHERE id_cita = ${idCita}
-          AND id_paciente = ${idPaciente}
+        WHERE id_cita = ${idCitaNumerico}
+          AND id_paciente = ${idPacienteNumerico}
       `;
 
       if (cita.length === 0) {
@@ -2339,8 +2332,8 @@ app.patch(
       const resultado = await sql`
         UPDATE citas
         SET estado = 'Cancelada'
-        WHERE id_cita = ${idCita}
-          AND id_paciente = ${idPaciente}
+        WHERE id_cita = ${idCitaNumerico}
+          AND id_paciente = ${idPacienteNumerico}
           AND estado IN ('Pendiente', 'Confirmada')
         RETURNING id_cita, estado
       `;

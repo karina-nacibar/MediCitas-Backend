@@ -69,13 +69,13 @@ describe('Pruebas generales de MediCitas', () => {
     });
 
     expect(respuesta.statusCode).toBe(400);
-    expect(respuesta.body.mensaje).toBe('El documento debe contener entre 6 y 15 números.');
+    expect(respuesta.body.mensaje).toBe('El documento debe contener exactamente 10 números.');
   });
   test('Debe rechazar un correo electrónico inválido', async () => {
     const respuesta = await request(app).post('/api/auth/registro').send({
       nombres: 'Karina',
       apellidos: 'Cortez',
-      documento: '12345678',
+      documento: '1234567890',
       correo: 'correo-invalido',
       telefono: '3001234567',
       contrasena: 'Prueba123!'
@@ -89,7 +89,7 @@ describe('Pruebas generales de MediCitas', () => {
     const respuesta = await request(app).post('/api/auth/registro').send({
       nombres: 'Karina',
       apellidos: 'Cortez',
-      documento: '12345678',
+      documento: '1234567890',
       correo: 'prueba@ejemplo.com',
       telefono: '3001234567',
       contrasena: 'Ab1!'
@@ -98,57 +98,45 @@ describe('Pruebas generales de MediCitas', () => {
     expect(respuesta.statusCode).toBe(400);
     expect(respuesta.body.mensaje).toBe('La contraseña debe tener mínimo 8 caracteres.');
   });
-  test('Debe rechazar contraseñas que no contienen símbolos', async () => {
-    const respuesta = await request(app).post('/api/auth/registro').send({
-      nombres: 'Karina',
-      apellidos: 'Cortez',
-      documento: '12345678',
-      correo: 'prueba@ejemplo.com',
-      telefono: '3001234567',
-      contrasena: 'Prueba123'
-    });
 
-    expect(respuesta.statusCode).toBe(400);
-    expect(respuesta.body.mensaje).toBe('La contraseña debe contener al menos un símbolo.');
-  });
   test('Debe rechazar números de teléfono inválidos', async () => {
     const respuesta = await request(app).post('/api/auth/registro').send({
       nombres: 'Karina',
       apellidos: 'Cortez',
-      documento: '12345678',
+      documento: '1234567890',
       correo: 'prueba@ejemplo.com',
       telefono: '123',
       contrasena: 'Prueba123!'
     });
 
     expect(respuesta.statusCode).toBe(400);
-    expect(respuesta.body.mensaje).toBe('Ingresa un teléfono válido de entre 7 y 15 números.');
+    expect(respuesta.body.mensaje).toBe('El teléfono debe contener exactamente 10 números.');
   });
   test('Debe rechazar nombres que contienen números', async () => {
     const respuesta = await request(app).post('/api/auth/registro').send({
       nombres: 'Karina123',
       apellidos: 'Cortez',
-      documento: '12345678',
+      documento: '1234567890',
       correo: 'prueba@ejemplo.com',
       telefono: '3001234567',
       contrasena: 'Prueba123!'
     });
 
     expect(respuesta.statusCode).toBe(400);
-    expect(respuesta.body.mensaje).toBe('El nombre solo debe contener letras y espacios.');
+    expect(respuesta.body.mensaje).toBe('Los nombres y apellidos deben contener entre 2 y 60 letras y espacios.');
   });
   test('Debe rechazar apellidos que contienen números', async () => {
     const respuesta = await request(app).post('/api/auth/registro').send({
       nombres: 'Karina',
       apellidos: 'Cortez123',
-      documento: '12345678',
+      documento: '1234567890',
       correo: 'prueba@ejemplo.com',
       telefono: '3001234567',
       contrasena: 'Prueba123!'
     });
 
     expect(respuesta.statusCode).toBe(400);
-    expect(respuesta.body.mensaje).toBe('Los apellidos solo deben contener letras y espacios.');
+    expect(respuesta.body.mensaje).toBe('Los nombres y apellidos deben contener entre 2 y 60 letras y espacios.');
   });
 
   test('No debe iniciar sesión si falta el correo', async () => {
@@ -216,7 +204,7 @@ describe('Pruebas generales de MediCitas', () => {
       });
 
     expect(respuesta.status).toBe(400);
-    expect(respuesta.body.mensaje).toBe('La fecha no tiene un formato válido.');
+    expect(respuesta.body.mensaje).toBe('La fecha ingresada no es válida.');
   });
 
   test('Debe rechazar fechas inexistentes', async () => {
@@ -389,7 +377,7 @@ describe('Pruebas generales de MediCitas', () => {
       .set('Authorization', `Bearer ${tokenPaciente}`)
       .send({
         id_medico: 1,
-        fecha: '2026-11-16',
+        fecha: '2026-11-20',
         hora: '13:00',
         motivo: 'Consulta general'
       });
